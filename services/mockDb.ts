@@ -117,9 +117,23 @@ class DBService {
 
   async adminUpdateUser(userId: string, data: Partial<User>): Promise<User> {
     const updates: any = {};
+    
+    // Check if we are updating the currently logged in user (The Admin themself)
+    // Supabase Client can only update the authenticated user's email
+    if (data.email) {
+        const { data: session } = await supabase.auth.getUser();
+        // If editing self, try to update Auth email
+        if (session.user && session.user.id === userId && session.user.email !== data.email) {
+            const { error } = await supabase.auth.updateUser({ email: data.email });
+            if (error) throw new Error("Auth Email Update Failed: " + error.message);
+        }
+        updates.email = data.email;
+    }
+
     if (data.name) updates.name = data.name;
     if (data.balance !== undefined) updates.balance = data.balance;
     
+    // Update Profile Table
     const { error } = await supabase
       .from('profiles')
       .update(updates)
