@@ -1,8 +1,21 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
+// Use the provided key as a fallback if env var is missing or process is undefined
+const FALLBACK_KEY = "AIzaSyASR3vX2WLolNVwKr0wtLLMjMnghFJuUAU";
+
 export const generateSamplePosts = async (): Promise<string[]> => {
   try {
-    const apiKey = process.env.API_KEY;
+    let apiKey = FALLBACK_KEY;
+
+    // Safely check for environment variable without crashing if 'process' is undefined
+    try {
+      if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
+        apiKey = process.env.API_KEY;
+      }
+    } catch (e) {
+      // Ignore reference error if process is not defined
+    }
+
     if (!apiKey) {
       console.warn("No Gemini API Key found. Returning fallback posts.");
       return [
