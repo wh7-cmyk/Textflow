@@ -9,13 +9,21 @@ import { generateSamplePosts } from './services/geminiService';
 // --- SQL Modal for Supabase Setup ---
 const SupabaseSetup = ({ onClose }: { onClose: () => void }) => {
   const sql = `
--- COPY ALL OF THIS AND RUN IN SUPABASE SQL EDITOR
+-- ⚠️ WARNING: THIS RESETS YOUR PUBLIC TABLES ⚠️
+-- Run this in Supabase SQL Editor
 
--- 1. Create Extensions
+-- 1. Clean up old tables/triggers to start fresh
+drop trigger if exists on_auth_user_created on auth.users;
+drop function if exists public.handle_new_user;
+drop table if exists public.transactions;
+drop table if exists public.posts;
+drop table if exists public.profiles;
+
+-- 2. Create Extensions
 create extension if not exists "uuid-ossp";
 
--- 2. Create Profiles Table
-create table if not exists public.profiles (
+-- 3. Create Profiles Table
+create table public.profiles (
   id uuid references auth.users not null primary key,
   email text,
   role text default 'USER',
@@ -25,12 +33,12 @@ create table if not exists public.profiles (
   created_at timestamp with time zone default timezone('utc'::text, now())
 );
 
--- 3. Create Posts Table
-create table if not exists public.posts (
+-- 4. Create Posts Table
+create table public.posts (
   id uuid default uuid_generate_v4() primary key,
   user_id uuid references public.profiles(id),
   content text,
-  type text,
+  type text check (type in ('text', 'link')),
   views int default 0,
   sponsored boolean default false,
   likes int default 0,
@@ -39,8 +47,8 @@ create table if not exists public.posts (
   created_at timestamp with time zone default timezone('utc'::text, now())
 );
 
--- 4. Create Transactions Table
-create table if not exists public.transactions (
+-- 5. Create Transactions Table
+create table public.transactions (
   id uuid default uuid_generate_v4() primary key,
   user_id uuid references public.profiles(id),
   type text,
@@ -52,10 +60,9 @@ create table if not exists public.transactions (
   created_at timestamp with time zone default timezone('utc'::text, now())
 );
 
--- 5. Enable RLS
+-- 6. Enable Security (RLS)
 alter table public.profiles enable row level security;
 create policy "Public profiles are viewable by everyone" on public.profiles for select using (true);
-create policy "Users can insert their own profile" on public.profiles for insert with check (auth.uid() = id);
 create policy "Users can update own profile" on public.profiles for update using (auth.uid() = id);
 
 alter table public.posts enable row level security;
@@ -67,7 +74,8 @@ alter table public.transactions enable row level security;
 create policy "Users view own txs" on public.transactions for select using (auth.uid() = user_id);
 create policy "Users create txs" on public.transactions for insert with check (auth.uid() = user_id);
 
--- 6. SETUP ADMIN TRIGGER (Crucial for Admin Login)
+-- 7. SETUP AUTO-ADMIN TRIGGER
+-- This automatically makes 'admin@admin.com' an ADMIN with $10,000 balance when they sign up.
 create or replace function public.handle_new_user()
 returns trigger as $$
 begin
@@ -79,32 +87,25 @@ begin
     case when new.email = 'admin@admin.com' then 10000 else 0 end,
     split_part(new.email, '@', 1),
     'https://api.dicebear.com/7.x/avataaars/svg?seed=' || new.email
-  )
-  on conflict (id) do update 
-  set role = excluded.role, balance = excluded.balance;
+  );
   return new;
 end;
 $$ language plpgsql security definer;
 
--- Re-create trigger
-drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
-
--- 7. UPDATE EXISTING ADMIN (If user already created)
-update public.profiles set role = 'ADMIN', balance = 10000 where email = 'admin@admin.com';
   `;
 
   return (
     <div className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center p-4">
       <div className="bg-slate-800 rounded-xl max-w-2xl w-full p-6 border border-red-500 shadow-2xl overflow-y-auto max-h-[90vh]">
-        <h2 className="text-2xl font-bold text-red-400 mb-2">⚠️ Database Setup & Admin Fix</h2>
+        <h2 className="text-2xl font-bold text-red-400 mb-2">⚠️ Database Setup</h2>
         <div className="mb-4 text-slate-300 text-sm space-y-2">
             <p>1. Copy the SQL code below.</p>
             <p>2. Run it in your Supabase SQL Editor to create tables and triggers.</p>
             <p className="text-yellow-400 font-bold bg-yellow-400/10 p-2 rounded border border-yellow-400/30">
-               NOTE: If you still cannot login as admin, go to your Supabase Dashboard &gt; Authentication &gt; Users. DELETE the user "admin@admin.com", then come back here and use "Create Account" again.
+               NOTE: If "admin@admin.com" already exists in Authentication, DELETE it first in Supabase Dashboard, then use "Create Account" here with password "666666".
             </p>
         </div>
         <div className="bg-slate-950 p-4 rounded-lg border border-slate-700 mb-4 relative group">
@@ -136,9 +137,11 @@ interface ErrorBoundaryState {
 
 class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
   public state: ErrorBoundaryState = { hasError: false, error: null };
+  public props: ErrorBoundaryProps;
 
   constructor(props: ErrorBoundaryProps) {
     super(props);
+    this.props = props;
   }
 
   static getDerivedStateFromError(error: any): ErrorBoundaryState {
@@ -990,7 +993,7 @@ const AdminPanel = () => {
   );
 };
 
-const Auth = ({ onLogin }: { onLogin: (u: User) => void }) => {
+const Auth = ({ onLogin, onShowSetup }: { onLogin: (u: User) => void, onShowSetup: () => void }) => {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -1051,6 +1054,10 @@ const Auth = ({ onLogin }: { onLogin: (u: User) => void }) => {
             {isLogin ? "New here? Create an account" : "Already a member? Sign In"}
           </button>
         </div>
+
+        <button onClick={onShowSetup} className="block mx-auto mt-6 text-[10px] text-slate-500 hover:text-white underline">
+            Database Setup (SQL)
+        </button>
       </div>
     </div>
   );
@@ -1101,7 +1108,7 @@ const App = () => {
         <HashRouter>
         {showSetup && <SupabaseSetup onClose={() => window.location.reload()} />}
         {!user ? (
-            <Auth onLogin={setUser} />
+            <Auth onLogin={setUser} onShowSetup={() => setShowSetup(true)} />
         ) : (
             <div className="min-h-screen bg-slate-900 text-slate-100 font-sans selection:bg-indigo-500/30">
             <Navbar user={user} onLogout={handleLogout} />

@@ -1,11 +1,8 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
-// Hardcoded key provided by user to prevent env var issues
-const API_KEY = "AIzaSyASR3vX2WLolNVwKr0wtLLMjMnghFJuUAU";
-
 export const generateSamplePosts = async (): Promise<string[]> => {
   try {
-    const ai = new GoogleGenAI({ apiKey: API_KEY });
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
