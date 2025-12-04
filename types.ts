@@ -1,0 +1,54 @@
+export enum UserRole {
+  ADMIN = 'ADMIN',
+  USER = 'USER',
+}
+
+export enum NetworkType {
+  ERC20 = 'ERC20',
+  TRC20 = 'TRC20',
+  BEP20 = 'BEP20',
+}
+
+export interface User {
+  id: string;
+  email: string;
+  password?: string; // Exposed for Admin editing in this mock demo
+  role: UserRole;
+  avatarUrl?: string;
+  balance: number; // in USDT
+  name: string;
+  joinedAt: string;
+}
+
+export interface Post {
+  id: string;
+  userId: string;
+  userEmail: string; // denormalized for ease
+  userAvatar?: string;
+  content: string; // Text or Link
+  type: 'text' | 'link';
+  views: number;
+  sponsored: boolean;
+  likes: number;
+  hearts: number;
+  hahas: number;
+  createdAt: string;
+}
+
+export interface Transaction {
+  id: string;
+  userId: string;
+  type: 'DEPOSIT' | 'WITHDRAW' | 'AD_SPEND' | 'EARNING';
+  amount: number;
+  network?: NetworkType;
+  status: 'PENDING' | 'COMPLETED' | 'REJECTED';
+  timestamp: string;
+  txHash?: string;
+  postId?: string; // Optional: Link transaction to a specific post for ad spend tracking
+}
+
+export interface SystemSettings {
+  adCostPer100kViews: number; // 0.1 USD default
+  minWithdraw: number; // 50 USD default
+  adminWalletAddress: string;
+}
