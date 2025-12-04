@@ -105,7 +105,7 @@ class DBService {
       id: data.id,
       email: data.email,
       role: data.role as UserRole,
-      balance: data.balance || 0,
+      balance: Number(data.balance) || 0,
       name: data.name,
       joinedAt: data.created_at,
       avatarUrl: data.avatar_url
@@ -133,13 +133,14 @@ class DBService {
         // If editing self, try to update Auth email
         if (session.user && session.user.id === userId && session.user.email !== data.email) {
             const { error } = await supabase.auth.updateUser({ email: data.email });
-            if (error) throw new Error("Auth Email Update Failed: " + error.message);
+            if (error) console.warn("Auth Email Update Warning (Login credential might not change): " + error.message);
         }
         updates.email = data.email;
     }
 
     if (data.name) updates.name = data.name;
-    if (data.balance !== undefined) updates.balance = data.balance;
+    // Ensure balance is a number
+    if (data.balance !== undefined) updates.balance = Number(data.balance);
     
     // Update Profile Table
     const { error } = await supabase
@@ -147,7 +148,7 @@ class DBService {
       .update(updates)
       .eq('id', userId);
       
-    if (error) throw new Error(error.message);
+    if (error) throw new Error("Database Update Failed: " + error.message);
     return this.getUserProfile(userId);
   }
 
@@ -159,7 +160,7 @@ class DBService {
       id: d.id,
       email: d.email,
       role: d.role as UserRole,
-      balance: d.balance,
+      balance: Number(d.balance) || 0,
       name: d.name,
       joinedAt: d.created_at,
       avatarUrl: d.avatar_url
@@ -337,10 +338,18 @@ class DBService {
 
   async requestWithdraw(userId: string, amount: number, network: NetworkType): Promise<void> {
     const profile = await this.getUserProfile(userId);
-    if (profile.balance < amount) throw new Error('Insufficient balance');
+    const currentBalance = Number(profile.balance);
+    
+    if (isNaN(currentBalance)) throw new Error('Balance error: Invalid number');
+    if (currentBalance < amount) throw new Error(`Insufficient balance: You have $${currentBalance.toFixed(2)}, but tried to withdraw $${amount}`);
 
-    await supabase.from('profiles').update({ balance: profile.balance - amount }).eq('id', userId);
+    const newBalance = currentBalance - amount;
+    
+    // First, deduct balance
+    const { error: profileError } = await supabase.from('profiles').update({ balance: newBalance }).eq('id', userId);
+    if (profileError) throw new Error("Failed to update balance: " + profileError.message);
 
+    // Then record transaction
     const { error } = await supabase.from('transactions').insert([{
       user_id: userId,
       type: 'WITHDRAW',
@@ -349,7 +358,11 @@ class DBService {
       status: 'PENDING'
     }]);
 
-    if (error) throw new Error(error.message);
+    if (error) {
+        // Rollback balance if tx failed (simple compensation)
+        await supabase.from('profiles').update({ balance: currentBalance }).eq('id', userId);
+        throw new Error(error.message);
+    }
   }
 
   async getUserTransactions(userId: string): Promise<Transaction[]> {
@@ -426,7 +439,7 @@ class DBService {
       const { data: tx } = await supabase.from('transactions').select('user_id, amount').eq('id', txId).single();
       if (tx) {
          const profile = await this.getUserProfile(tx.user_id);
-         const { error: profileError } = await supabase.from('profiles').update({ balance: profile.balance + tx.amount }).eq('id', tx.user_id);
+         const { error: profileError } = await supabase.from('profiles').update({ balance: Number(profile.balance) + tx.amount }).eq('id', tx.user_id);
          if (profileError) {
              console.error("Refund Error:", profileError);
              throw new Error("Refund Failed: " + profileError.message);

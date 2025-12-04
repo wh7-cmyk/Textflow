@@ -297,13 +297,13 @@ const EditUserModal = ({ user, onClose, onSave }: { user: User, onClose: () => v
             <input value={formData.name} onChange={e => handleChange('name', e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white" />
           </div>
           <div>
-            <label className="text-xs text-slate-400">Email (Edit carefully)</label>
+            <label className="text-xs text-slate-400">Email</label>
             <input 
               value={formData.email} 
               onChange={e => handleChange('email', e.target.value)} 
               className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white" 
             />
-            <p className="text-[10px] text-yellow-500 mt-1">Note: Only the Admin can update their own email. Other users' emails cannot be changed here.</p>
+            <p className="text-[10px] text-slate-500 mt-1">Updates the user profile email.</p>
           </div>
           <div>
             <label className="text-xs text-slate-400">Balance (USDT)</label>
@@ -994,8 +994,9 @@ const AdminPanel = () => {
         await mockDB.adminUpdateUser(id, data);
         setEditUser(null);
         setUsers(await mockDB.getAllUsers());
+        alert("User updated successfully");
       } catch(e:any) {
-          alert(e.message);
+          alert("Update Failed: " + e.message);
       }
   };
 
