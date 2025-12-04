@@ -201,6 +201,24 @@ class DBService {
     };
   }
 
+  async updatePost(postId: string, content: string): Promise<void> {
+    const { error } = await supabase
+      .from('posts')
+      .update({ content })
+      .eq('id', postId);
+
+    if (error) throw new Error(error.message);
+  }
+
+  async deletePost(postId: string): Promise<void> {
+    const { error } = await supabase
+      .from('posts')
+      .delete()
+      .eq('id', postId);
+
+    if (error) throw new Error(error.message);
+  }
+
   async getFeed(): Promise<Post[]> {
     const { data, error } = await supabase
       .from('posts')

@@ -70,6 +70,7 @@ alter table public.posts enable row level security;
 create policy "Posts are viewable by everyone" on public.posts for select using (true);
 create policy "Users can create posts" on public.posts for insert with check (auth.uid() = user_id);
 create policy "Users can update own posts" on public.posts for update using (auth.uid() = user_id);
+create policy "Users can delete own posts" on public.posts for delete using (auth.uid() = user_id);
 
 alter table public.transactions enable row level security;
 create policy "Users view own txs" on public.transactions for select using (auth.uid() = user_id);
@@ -119,7 +120,7 @@ create trigger on_auth_user_created
             <p>1. Copy the SQL code below.</p>
             <p>2. Run it in your Supabase SQL Editor to create tables and permissions.</p>
             <p className="text-yellow-400 font-bold bg-yellow-400/10 p-2 rounded border border-yellow-400/30">
-               NOTE: If you are having issues with Admin buttons (Approve/Reject), you MUST run this script to update permissions.
+               NOTE: If you are having issues with Admin buttons or deleting posts, you MUST run this script to update permissions.
             </p>
         </div>
         <div className="bg-slate-950 p-4 rounded-lg border border-slate-700 mb-4 relative group">
@@ -207,6 +208,26 @@ const ChartBarIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
     <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 0 0 6 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0 1 18 16.5h-2.25m-7.5 0h7.5m-7.5 0-1 3m8.5-3 1 3m0 0 .5 1.5m-.5-1.5h-9.5m0 0-.5 1.5M9 11.25v1.5M12 9v3.75m3-6v6" />
   </svg>
+);
+const PencilIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+    <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Zm0 0L19.5 7.125" />
+  </svg>
+);
+const TrashIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+    <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+  </svg>
+);
+const XMarkIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+    </svg>
+);
+const CheckIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+      <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+    </svg>
 );
 
 // --- Modals ---
@@ -357,8 +378,12 @@ const Navbar = ({ user, onLogout, siteName }: { user: User; onLogout: () => void
   </nav>
 );
 
-const PostCard: React.FC<{ post: Post; onReact: (id: string, type: 'likes' | 'hearts' | 'hahas') => void }> = ({ post, onReact }) => {
+const PostCard: React.FC<{ post: Post; onReact: (id: string, type: 'likes' | 'hearts' | 'hahas') => void, currentUser?: User, onRefresh?: () => void }> = ({ post, onReact, currentUser, onRefresh }) => {
   const [showShareMenu, setShowShareMenu] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editContent, setEditContent] = useState(post.content);
+
+  const isOwner = currentUser?.id === post.userId;
   
   // Construct a specific URL for this post
   // Note: Since we are in a SPA with HashRouter, the URL is window.location.origin + /#/post/ID
@@ -389,6 +414,27 @@ const PostCard: React.FC<{ post: Post; onReact: (id: string, type: 'likes' | 'he
     alert('Link copied to clipboard!');
   };
 
+  const handleDelete = async () => {
+    if(confirm("Are you sure you want to delete this post?")) {
+        try {
+            await mockDB.deletePost(post.id);
+            if(onRefresh) onRefresh();
+        } catch(e:any) {
+            alert("Delete failed: " + e.message);
+        }
+    }
+  };
+
+  const handleSave = async () => {
+    try {
+        await mockDB.updatePost(post.id, editContent);
+        setIsEditing(false);
+        if(onRefresh) onRefresh();
+    } catch(e:any) {
+        alert("Update failed: " + e.message);
+    }
+  };
+
   return (
     <div className={`relative bg-slate-800 rounded-2xl p-6 mb-5 border transition-all duration-300 ${post.sponsored ? 'border-indigo-500/40 shadow-[0_0_20px_rgba(99,102,241,0.15)]' : 'border-slate-700/60 hover:border-slate-600'}`}>
       {post.sponsored && (
@@ -399,20 +445,52 @@ const PostCard: React.FC<{ post: Post; onReact: (id: string, type: 'likes' | 'he
       <div className="flex items-start gap-4">
         <img src={post.userAvatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${post.userEmail}`} className="w-12 h-12 rounded-full bg-slate-700 object-cover border border-slate-600" alt="Avatar" />
         <div className="flex-1 min-w-0">
-          <div className="flex flex-col">
-              <h4 className="font-bold text-slate-100 text-sm truncate">{post.userEmail.split('@')[0]}</h4>
-              <span className="text-xs text-slate-500">{new Date(post.createdAt).toLocaleDateString()}</span>
+          <div className="flex items-center justify-between">
+              <div className="flex flex-col">
+                  <h4 className="font-bold text-slate-100 text-sm truncate">{post.userEmail.split('@')[0]}</h4>
+                  <span className="text-xs text-slate-500">{new Date(post.createdAt).toLocaleDateString()}</span>
+              </div>
+              {isOwner && !isEditing && (
+                  <div className="flex gap-2">
+                      <button onClick={() => setIsEditing(true)} className="text-slate-500 hover:text-indigo-400 p-1 rounded-full hover:bg-slate-700/50 transition">
+                          <PencilIcon />
+                      </button>
+                      <button onClick={handleDelete} className="text-slate-500 hover:text-red-400 p-1 rounded-full hover:bg-slate-700/50 transition">
+                          <TrashIcon />
+                      </button>
+                  </div>
+              )}
           </div>
-          <div className="mt-3 text-slate-200 text-base leading-relaxed break-words font-light">
-            {post.type === 'link' ? (
-               <a href={post.content} target="_blank" rel="noreferrer" className="flex items-center gap-2 p-3 bg-slate-900/50 rounded-lg border border-slate-700/50 text-indigo-400 hover:text-indigo-300 transition group">
-                 <span className="text-xl">🔗</span>
-                 <span className="truncate underline decoration-indigo-500/30 group-hover:decoration-indigo-500">{post.content}</span>
-               </a>
-            ) : (
-               <p>{post.content}</p>
-            )}
-          </div>
+
+          {isEditing ? (
+              <div className="mt-3">
+                  <textarea 
+                    value={editContent}
+                    onChange={(e) => setEditContent(e.target.value)}
+                    className="w-full bg-slate-900/50 border border-slate-700 rounded-lg p-3 text-slate-200 focus:outline-none focus:border-indigo-500 text-base"
+                    rows={3}
+                  />
+                  <div className="flex justify-end gap-2 mt-2">
+                      <button onClick={() => setIsEditing(false)} className="flex items-center gap-1 text-xs font-bold text-slate-400 hover:text-white px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 transition">
+                          <XMarkIcon /> Cancel
+                      </button>
+                      <button onClick={handleSave} className="flex items-center gap-1 text-xs font-bold text-white px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 transition">
+                          <CheckIcon /> Save
+                      </button>
+                  </div>
+              </div>
+          ) : (
+            <div className="mt-3 text-slate-200 text-base leading-relaxed break-words font-light">
+                {post.type === 'link' ? (
+                <a href={post.content} target="_blank" rel="noreferrer" className="flex items-center gap-2 p-3 bg-slate-900/50 rounded-lg border border-slate-700/50 text-indigo-400 hover:text-indigo-300 transition group">
+                    <span className="text-xl">🔗</span>
+                    <span className="truncate underline decoration-indigo-500/30 group-hover:decoration-indigo-500">{post.content}</span>
+                </a>
+                ) : (
+                <p>{post.content}</p>
+                )}
+            </div>
+          )}
           
           <div className="mt-5 flex items-center justify-between pt-4 border-t border-slate-700/40">
             <div className="flex gap-6">
@@ -525,7 +603,7 @@ const PolicyPage = () => {
     );
 };
 
-const Feed = () => {
+const Feed = ({ currentUser }: { currentUser: User }) => {
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -569,7 +647,7 @@ const Feed = () => {
         posts.length === 0 ? (
             <div className="text-center py-10 text-slate-500">No posts yet. Be the first!</div>
         ) : (
-            posts.map(post => <PostCard key={post.id} post={post} onReact={handleReact} />)
+            posts.map(post => <PostCard key={post.id} post={post} onReact={handleReact} currentUser={currentUser} onRefresh={loadFeed} />)
         )
       )}
     </div>
@@ -577,18 +655,22 @@ const Feed = () => {
 };
 
 // New Single Post Page for Sharing
-const SinglePost = () => {
+const SinglePost = ({ currentUser }: { currentUser?: User }) => {
   const { postId } = useParams();
   const [post, setPost] = useState<Post | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const loadPost = () => {
     if (postId) {
-      mockDB.getPost(postId).then(p => {
-        setPost(p);
-        setLoading(false);
-      });
+        mockDB.getPost(postId).then(p => {
+          setPost(p);
+          setLoading(false);
+        });
     }
+  };
+
+  useEffect(() => {
+    loadPost();
   }, [postId]);
 
   const handleReact = async (id: string, type: 'likes' | 'hearts' | 'hahas') => {
@@ -602,7 +684,7 @@ const SinglePost = () => {
   return (
     <div className="max-w-2xl mx-auto py-8 px-4">
        <Link to="/" className="text-slate-400 hover:text-white text-sm mb-4 inline-block">&larr; Back to Feed</Link>
-       <PostCard post={post} onReact={handleReact} />
+       <PostCard post={post} onReact={handleReact} currentUser={currentUser} onRefresh={loadPost} />
     </div>
   );
 }
@@ -730,8 +812,12 @@ const Profile = ({ user }: { user: User }) => {
   const [sponsorPost, setSponsorPost] = useState<Post | null>(null);
   const navigate = useNavigate();
 
-  useEffect(() => {
+  const loadPosts = async () => {
     mockDB.getUserPosts(user.id).then(setPosts);
+  }
+
+  useEffect(() => {
+    loadPosts();
   }, [user.id, trigger]);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -811,11 +897,11 @@ const Profile = ({ user }: { user: User }) => {
         {posts.length === 0 ? <p className="text-slate-500 text-center py-10 bg-slate-800/50 rounded-xl border border-slate-800 border-dashed">No posts yet.</p> : (
             posts.map(p => (
             <div key={p.id} className="relative group">
-                <PostCard post={p} onReact={() => {}} />
+                <PostCard post={p} onReact={() => {}} currentUser={user} onRefresh={loadPosts} />
                 {!p.sponsored && (
                 <button 
                     onClick={() => setSponsorPost(p)} 
-                    className="absolute top-5 right-5 text-xs font-bold bg-white text-indigo-900 px-3 py-1.5 rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-all hover:scale-105 transform translate-y-1 group-hover:translate-y-0"
+                    className="absolute top-5 right-14 text-xs font-bold bg-white text-indigo-900 px-3 py-1.5 rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-all hover:scale-105 transform translate-y-1 group-hover:translate-y-0"
                 >
                     🚀 Sponsor
                 </button>
@@ -1314,12 +1400,12 @@ const App = () => {
             <div className="min-h-screen bg-slate-900 text-slate-100 font-sans selection:bg-indigo-500/30">
             <Navbar user={user} onLogout={handleLogout} siteName={siteName} />
             <Routes>
-                <Route path="/" element={<Feed />} />
+                <Route path="/" element={<Feed currentUser={user} />} />
                 <Route path="/profile" element={<Profile user={user} />} />
                 <Route path="/wallet" element={<Wallet user={user} />} />
                 <Route path="/advertiser" element={<AdvertiserPanel user={user} />} />
                 <Route path="/admin" element={user.role === UserRole.ADMIN ? <AdminPanel /> : <Navigate to="/" />} />
-                <Route path="/post/:postId" element={<SinglePost />} />
+                <Route path="/post/:postId" element={<SinglePost currentUser={user} />} />
                 <Route path="/about" element={<AboutPage />} />
                 <Route path="/policy" element={<PolicyPage />} />
                 <Route path="*" element={<Navigate to="/" />} />
