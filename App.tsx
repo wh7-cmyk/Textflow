@@ -947,13 +947,17 @@ const Wallet = ({ user }: { user: User }) => {
 
 const AdminPanel = () => {
   const [settings, setSettings] = useState<SystemSettings | null>(null);
+  const [draftSettings, setDraftSettings] = useState<SystemSettings | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [withdrawals, setWithdrawals] = useState<Transaction[]>([]);
   const [view, setView] = useState<'USERS' | 'WITHDRAWALS' | 'SETTINGS'>('USERS');
   const [editUser, setEditUser] = useState<User | null>(null);
 
   useEffect(() => {
-    mockDB.getSettings().then(setSettings);
+    mockDB.getSettings().then((s) => {
+        setSettings(s);
+        setDraftSettings(s);
+    });
     mockDB.getAllUsers().then(setUsers);
     mockDB.getPendingWithdrawals().then(setWithdrawals);
   }, [editUser]);
@@ -977,7 +981,18 @@ const AdminPanel = () => {
       }
   };
 
-  if (!settings) return null;
+  const handleSaveSettings = async () => {
+      if (!draftSettings) return;
+      try {
+          await mockDB.updateSettings(draftSettings);
+          setSettings(draftSettings);
+          alert("Settings saved successfully!");
+      } catch (e: any) {
+          alert("Error saving settings: " + e.message);
+      }
+  };
+
+  if (!settings || !draftSettings) return null;
 
   return (
     <div className="max-w-6xl mx-auto py-10 px-6">
@@ -1066,8 +1081,8 @@ const AdminPanel = () => {
                     <label className="block text-sm font-semibold text-slate-300 mb-2">Creator Earning Rate (USD per 100k views)</label>
                     <input 
                         type="number" 
-                        defaultValue={settings.adCostPer100kViews}
-                        onChange={(e) => mockDB.updateSettings({ adCostPer100kViews: parseFloat(e.target.value) })}
+                        value={draftSettings.adCostPer100kViews}
+                        onChange={(e) => setDraftSettings({ ...draftSettings, adCostPer100kViews: parseFloat(e.target.value) })}
                         className="w-full bg-slate-900 border border-slate-600 p-3 rounded-xl text-white focus:border-indigo-500 outline-none" 
                     />
                     <p className="text-xs text-slate-500 mt-1">Amount credited to creators per 100,000 views (if applicable).</p>
@@ -1076,8 +1091,8 @@ const AdminPanel = () => {
                     <label className="block text-sm font-semibold text-slate-300 mb-2">Advertiser Cost (USD per 1k views)</label>
                     <input 
                         type="number" 
-                        defaultValue={settings.sponsorAdPricePer1kViews || 1.0}
-                        onChange={(e) => mockDB.updateSettings({ sponsorAdPricePer1kViews: parseFloat(e.target.value) })}
+                        value={draftSettings.sponsorAdPricePer1kViews || 1.0}
+                        onChange={(e) => setDraftSettings({ ...draftSettings, sponsorAdPricePer1kViews: parseFloat(e.target.value) })}
                         className="w-full bg-slate-900 border border-slate-600 p-3 rounded-xl text-white focus:border-indigo-500 outline-none" 
                     />
                     <p className="text-xs text-slate-500 mt-1">Price advertisers pay to boost their posts by 1,000 views.</p>
@@ -1087,8 +1102,8 @@ const AdminPanel = () => {
                     <label className="block text-sm font-semibold text-slate-300 mb-2">Minimum Withdrawal (USD)</label>
                     <input 
                         type="number" 
-                        defaultValue={settings.minWithdraw}
-                        onChange={(e) => mockDB.updateSettings({ minWithdraw: parseFloat(e.target.value) })}
+                        value={draftSettings.minWithdraw}
+                        onChange={(e) => setDraftSettings({ ...draftSettings, minWithdraw: parseFloat(e.target.value) })}
                         className="w-full bg-slate-900 border border-slate-600 p-3 rounded-xl text-white focus:border-indigo-500 outline-none" 
                     />
                 </div>
@@ -1096,8 +1111,8 @@ const AdminPanel = () => {
                     <label className="block text-sm font-semibold text-slate-300 mb-2">Admin Receiving Wallet</label>
                     <input 
                         type="text" 
-                        defaultValue={settings.adminWalletAddress}
-                        onChange={(e) => mockDB.updateSettings({ adminWalletAddress: e.target.value })}
+                        value={draftSettings.adminWalletAddress}
+                        onChange={(e) => setDraftSettings({ ...draftSettings, adminWalletAddress: e.target.value })}
                         className="w-full bg-slate-900 border border-slate-600 p-3 rounded-xl text-white focus:border-indigo-500 outline-none font-mono text-sm" 
                     />
                 </div>
@@ -1105,19 +1120,26 @@ const AdminPanel = () => {
                 <div>
                     <label className="block text-sm font-semibold text-slate-300 mb-2">About Page Content</label>
                     <textarea 
-                        defaultValue={settings.aboutContent}
-                        onChange={(e) => mockDB.updateSettings({ aboutContent: e.target.value })}
+                        value={draftSettings.aboutContent}
+                        onChange={(e) => setDraftSettings({ ...draftSettings, aboutContent: e.target.value })}
                         className="w-full bg-slate-900 border border-slate-600 p-3 rounded-xl text-white focus:border-indigo-500 outline-none min-h-[100px]" 
                     />
                 </div>
                 <div>
                     <label className="block text-sm font-semibold text-slate-300 mb-2">Policy Page Content</label>
                     <textarea 
-                        defaultValue={settings.policyContent}
-                        onChange={(e) => mockDB.updateSettings({ policyContent: e.target.value })}
+                        value={draftSettings.policyContent}
+                        onChange={(e) => setDraftSettings({ ...draftSettings, policyContent: e.target.value })}
                         className="w-full bg-slate-900 border border-slate-600 p-3 rounded-xl text-white focus:border-indigo-500 outline-none min-h-[100px]" 
                     />
                 </div>
+                
+                <button 
+                  onClick={handleSaveSettings}
+                  className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl transition shadow-lg mt-4"
+                >
+                  Save System Settings
+                </button>
              </div>
           </div>
       )}
