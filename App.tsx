@@ -9,13 +9,13 @@ import { generateSamplePosts } from './services/geminiService';
 // --- SQL Modal for Supabase Setup ---
 const SupabaseSetup = ({ onClose }: { onClose: () => void }) => {
   const sql = `
--- RUN THIS IN YOUR SUPABASE SQL EDITOR
+-- COPY ALL OF THIS AND RUN IN SUPABASE SQL EDITOR
 
--- 1. Enable UUIDs
+-- 1. Create Extensions
 create extension if not exists "uuid-ossp";
 
 -- 2. Create Profiles Table
-create table public.profiles (
+create table if not exists public.profiles (
   id uuid references auth.users not null primary key,
   email text,
   role text default 'USER',
@@ -26,7 +26,7 @@ create table public.profiles (
 );
 
 -- 3. Create Posts Table
-create table public.posts (
+create table if not exists public.posts (
   id uuid default uuid_generate_v4() primary key,
   user_id uuid references public.profiles(id),
   content text,
@@ -40,7 +40,7 @@ create table public.posts (
 );
 
 -- 4. Create Transactions Table
-create table public.transactions (
+create table if not exists public.transactions (
   id uuid default uuid_generate_v4() primary key,
   user_id uuid references public.profiles(id),
   type text,
@@ -52,7 +52,7 @@ create table public.transactions (
   created_at timestamp with time zone default timezone('utc'::text, now())
 );
 
--- 5. Enable RLS (Optional for demo but good practice)
+-- 5. Enable RLS
 alter table public.profiles enable row level security;
 create policy "Public profiles are viewable by everyone" on public.profiles for select using (true);
 create policy "Users can insert their own profile" on public.profiles for insert with check (auth.uid() = id);
@@ -66,13 +66,47 @@ create policy "Users can update own posts" on public.posts for update using (aut
 alter table public.transactions enable row level security;
 create policy "Users view own txs" on public.transactions for select using (auth.uid() = user_id);
 create policy "Users create txs" on public.transactions for insert with check (auth.uid() = user_id);
+
+-- 6. SETUP ADMIN TRIGGER (Crucial for Admin Login)
+create or replace function public.handle_new_user()
+returns trigger as $$
+begin
+  insert into public.profiles (id, email, role, balance, name, avatar_url)
+  values (
+    new.id,
+    new.email,
+    case when new.email = 'admin@admin.com' then 'ADMIN' else 'USER' end,
+    case when new.email = 'admin@admin.com' then 10000 else 0 end,
+    split_part(new.email, '@', 1),
+    'https://api.dicebear.com/7.x/avataaars/svg?seed=' || new.email
+  )
+  on conflict (id) do update 
+  set role = excluded.role, balance = excluded.balance;
+  return new;
+end;
+$$ language plpgsql security definer;
+
+-- Re-create trigger
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute procedure public.handle_new_user();
+
+-- 7. UPDATE EXISTING ADMIN (If user already created)
+update public.profiles set role = 'ADMIN', balance = 10000 where email = 'admin@admin.com';
   `;
 
   return (
     <div className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center p-4">
       <div className="bg-slate-800 rounded-xl max-w-2xl w-full p-6 border border-red-500 shadow-2xl overflow-y-auto max-h-[90vh]">
-        <h2 className="text-2xl font-bold text-red-400 mb-2">⚠️ Database Setup Required</h2>
-        <p className="text-slate-300 mb-4">You have connected Supabase but the tables are missing. Please copy the SQL below and run it in your Supabase SQL Editor.</p>
+        <h2 className="text-2xl font-bold text-red-400 mb-2">⚠️ Database Setup & Admin Fix</h2>
+        <div className="mb-4 text-slate-300 text-sm space-y-2">
+            <p>1. Copy the SQL code below.</p>
+            <p>2. Run it in your Supabase SQL Editor to create tables and triggers.</p>
+            <p className="text-yellow-400 font-bold bg-yellow-400/10 p-2 rounded border border-yellow-400/30">
+               NOTE: If you still cannot login as admin, go to your Supabase Dashboard &gt; Authentication &gt; Users. DELETE the user "admin@admin.com", then come back here and use "Create Account" again.
+            </p>
+        </div>
         <div className="bg-slate-950 p-4 rounded-lg border border-slate-700 mb-4 relative group">
            <pre className="text-xs text-green-400 font-mono whitespace-pre-wrap">{sql}</pre>
            <button 
@@ -91,9 +125,8 @@ create policy "Users create txs" on public.transactions for insert with check (a
 };
 
 // --- Error Boundary ---
-// Fix: Added explicit interfaces for Props and State and updated class definition to fix TypeScript errors
 interface ErrorBoundaryProps {
-  children: React.ReactNode;
+  children?: React.ReactNode;
 }
 
 interface ErrorBoundaryState {
@@ -102,9 +135,10 @@ interface ErrorBoundaryState {
 }
 
 class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  public state: ErrorBoundaryState = { hasError: false, error: null };
+
   constructor(props: ErrorBoundaryProps) {
     super(props);
-    this.state = { hasError: false, error: null };
   }
 
   static getDerivedStateFromError(error: any): ErrorBoundaryState {
@@ -977,7 +1011,13 @@ const Auth = ({ onLogin }: { onLogin: (u: User) => void }) => {
       localStorage.setItem('tf_current_user', JSON.stringify(user));
       onLogin(user);
     } catch (err: any) {
-      setError(err.message);
+      if (err.message.includes("Invalid login credentials")) {
+         setError("Invalid credentials. If you are trying to reset, please DELETE the user in Supabase Dashboard first.");
+      } else if (err.message.includes("User already registered")) {
+         setError("User exists. Please sign in instead.");
+      } else {
+         setError(err.message);
+      }
     } finally {
       setLoading(false);
     }
@@ -990,7 +1030,7 @@ const Auth = ({ onLogin }: { onLogin: (u: User) => void }) => {
         <h1 className="text-4xl font-black text-center text-white mb-2 tracking-tight">TextFlow</h1>
         <p className="text-center text-slate-400 mb-8 font-medium">{isLogin ? 'Welcome back, Creator.' : 'Join the revolution.'}</p>
         
-        {error && <div className="bg-red-500/10 border border-red-500/50 text-red-400 text-sm p-4 rounded-xl mb-6 flex items-center gap-2"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>{error}</div>}
+        {error && <div className="bg-red-500/10 border border-red-500/50 text-red-400 text-sm p-4 rounded-xl mb-6 flex items-center gap-2"><svg className="w-5 h-5 min-w-[20px]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg><span>{error}</span></div>}
         
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>

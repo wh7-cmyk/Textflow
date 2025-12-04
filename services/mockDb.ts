@@ -42,19 +42,23 @@ class DBService {
     if (error) throw new Error(error.message);
     if (!data.user) throw new Error('Signup failed');
 
-    // Manually create profile if trigger fails or doesn't exist
+    // The SQL Trigger (handle_new_user) should handle profile creation automatically now.
+    // However, we wait a moment to ensure propagation or handle fallback if trigger missing.
+    await new Promise(r => setTimeout(r, 1000));
+
+    // Fallback: Manually create profile if trigger didn't run
     const { error: profileError } = await supabase.from('profiles').insert([{
       id: data.user.id,
       email: email,
       role: email === 'admin@admin.com' ? 'ADMIN' : 'USER',
-      balance: email === 'admin@admin.com' ? 10000 : 0, // Bonus for testing if admin
+      balance: email === 'admin@admin.com' ? 10000 : 0, 
       name: email.split('@')[0],
       avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`
     }]);
 
     // Ignore duplicate key error if trigger already created it
     if (profileError && !profileError.message.includes('duplicate key')) {
-      console.error("Profile creation error", profileError);
+      console.log("Profile check:", profileError.message);
     }
 
     return this.getUserProfile(data.user.id, email);
@@ -69,17 +73,24 @@ class DBService {
       .eq('id', userId)
       .single();
 
-    if (error) {
+    if (error || !data) {
         // If profile doesn't exist yet (race condition), return partial
         return {
             id: userId,
             email: emailFallback || '',
             role: (emailFallback === 'admin@admin.com') ? UserRole.ADMIN : UserRole.USER,
-            balance: 0,
+            balance: (emailFallback === 'admin@admin.com') ? 10000 : 0,
             name: emailFallback?.split('@')[0] || 'User',
             joinedAt: new Date().toISOString(),
             avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${userId}`
         };
+    }
+
+    // Auto-fix Admin Role if DB is out of sync
+    if (data.email === 'admin@admin.com' && data.role !== 'ADMIN') {
+        await supabase.from('profiles').update({ role: 'ADMIN', balance: 10000 }).eq('id', userId);
+        data.role = 'ADMIN';
+        data.balance = 10000;
     }
 
     return {
@@ -108,8 +119,6 @@ class DBService {
     const updates: any = {};
     if (data.name) updates.name = data.name;
     if (data.balance !== undefined) updates.balance = data.balance;
-    // Note: Email/Password update via Admin API is restricted in Supabase Client.
-    // We update the profile data only.
     
     const { error } = await supabase
       .from('profiles')
@@ -222,7 +231,6 @@ class DBService {
   }
 
   async reactToPost(postId: string, reaction: 'likes' | 'hearts' | 'hahas'): Promise<void> {
-    // Basic increment, ideally use RPC for atomicity but client-side read-modify-write is okay for demo
     const { data } = await supabase.from('posts').select(reaction).eq('id', postId).single();
     if (data) {
       const newVal = (data as any)[reaction] + 1;
@@ -231,14 +239,12 @@ class DBService {
   }
 
   async sponsorPost(postId: string, amount: number): Promise<void> {
-    // 1. Check Balance
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error("Not logged in");
 
     const profile = await this.getUserProfile(user.id);
     if (profile.balance < amount) throw new Error("Insufficient balance");
 
-    // 2. Create Transaction
     const { error: txError } = await supabase.from('transactions').insert([{
       user_id: user.id,
       type: 'AD_SPEND',
@@ -248,14 +254,11 @@ class DBService {
     }]);
     if (txError) throw new Error(txError.message);
 
-    // 3. Deduct Balance
     await supabase.from('profiles').update({ balance: profile.balance - amount }).eq('id', user.id);
 
-    // 4. Update Post (Mark sponsored and boost views)
     const estimatedViews = Math.floor((amount / this.settings.adCostPer100kViews) * 100000);
     const boost = Math.floor(estimatedViews * 0.1);
     
-    // Fetch current views
     const { data: postData } = await supabase.from('posts').select('views').eq('id', postId).single();
     const currentViews = postData?.views || 0;
 
@@ -279,7 +282,6 @@ class DBService {
 
     if (error) throw new Error(error.message);
 
-    // Update balance
     const profile = await this.getUserProfile(userId);
     await supabase.from('profiles').update({ balance: profile.balance + amount }).eq('id', userId);
   }
@@ -288,7 +290,6 @@ class DBService {
     const profile = await this.getUserProfile(userId);
     if (profile.balance < amount) throw new Error('Insufficient balance');
 
-    // Deduct immediately
     await supabase.from('profiles').update({ balance: profile.balance - amount }).eq('id', userId);
 
     const { error } = await supabase.from('transactions').insert([{
@@ -366,7 +367,6 @@ class DBService {
     if (error) throw new Error(error.message);
 
     if (!approved) {
-      // Refund
       const { data: tx } = await supabase.from('transactions').select('user_id, amount').eq('id', txId).single();
       if (tx) {
          const profile = await this.getUserProfile(tx.user_id);
