@@ -1,270 +1,327 @@
 import { User, Post, Transaction, UserRole, SystemSettings, NetworkType } from '../types';
+import { supabase } from './supabaseClient';
 
-// Initial Mock Data
-const DEFAULT_SETTINGS: SystemSettings = {
-  adCostPer100kViews: 0.1,
-  minWithdraw: 50,
-  adminWalletAddress: '0xAdminWalletAddress123456789',
-};
-
-// LocalStorage Keys
-const KEYS = {
-  USERS: 'tf_users',
-  POSTS: 'tf_posts',
-  TXS: 'tf_txs',
-  SETTINGS: 'tf_settings',
-};
-
-// Helper to simulate delay
-const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-class MockDB {
-  private users: User[] = [];
-  private posts: Post[] = [];
-  private transactions: Transaction[] = [];
-  private settings: SystemSettings = DEFAULT_SETTINGS;
+// We implement the same interface as the old MockDB for compatibility
+class DBService {
+  private settings: SystemSettings = {
+    adCostPer100kViews: 0.1,
+    minWithdraw: 50,
+    adminWalletAddress: '0xAdminWalletAddress123456789',
+  };
 
   constructor() {
-    this.load();
-    if (!this.users.some(u => u.role === UserRole.ADMIN)) {
-      this.seedAdmin();
-    }
+    this.loadSettings();
   }
 
-  private load() {
-    if (typeof window === 'undefined') return;
-    this.users = JSON.parse(localStorage.getItem(KEYS.USERS) || '[]');
-    this.posts = JSON.parse(localStorage.getItem(KEYS.POSTS) || '[]');
-    this.transactions = JSON.parse(localStorage.getItem(KEYS.TXS) || '[]');
-    this.settings = JSON.parse(localStorage.getItem(KEYS.SETTINGS) || JSON.stringify(DEFAULT_SETTINGS));
-  }
-
-  private save() {
-    localStorage.setItem(KEYS.USERS, JSON.stringify(this.users));
-    localStorage.setItem(KEYS.POSTS, JSON.stringify(this.posts));
-    localStorage.setItem(KEYS.TXS, JSON.stringify(this.transactions));
-    localStorage.setItem(KEYS.SETTINGS, JSON.stringify(this.settings));
-  }
-
-  private seedAdmin() {
-    const admin: User = {
-      id: 'admin-id',
-      email: 'admin@admin.com',
-      password: '666666',
-      role: UserRole.ADMIN,
-      balance: 10000,
-      name: 'Super Admin',
-      joinedAt: new Date().toISOString(),
-    };
-    this.users.push(admin);
-    this.save();
+  private async loadSettings() {
+    // In a real app, settings would be in a DB table. For now we use local default or localStorage
+    const saved = localStorage.getItem('tf_settings');
+    if (saved) this.settings = JSON.parse(saved);
   }
 
   // --- Auth ---
 
   async signIn(email: string, password: string): Promise<User> {
-    await delay(600);
-    const user = this.users.find(u => u.email === email);
-    
-    if (!user) throw new Error('User not found');
-    
-    // Check password
-    if (user.password && user.password !== password) {
-      throw new Error('Invalid password');
-    }
-    
-    // Fallback for older mock users without password
-    if (!user.password) {
-       // Allow login, but maybe prompt to set password in real app.
-    }
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
 
-    return user;
+    if (error) throw new Error(error.message);
+    if (!data.user) throw new Error('No user data returned');
+
+    return this.getUserProfile(data.user.id, data.user.email || email);
   }
 
   async signUp(email: string, password: string): Promise<User> {
-    await delay(600);
-    if (this.users.find(u => u.email === email)) throw new Error('Email already taken');
-    
-    const newUser: User = {
-      id: Math.random().toString(36).substr(2, 9),
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      role: UserRole.USER,
-      balance: 0,
+    });
+
+    if (error) throw new Error(error.message);
+    if (!data.user) throw new Error('Signup failed');
+
+    // Manually create profile if trigger fails or doesn't exist
+    const { error: profileError } = await supabase.from('profiles').insert([{
+      id: data.user.id,
+      email: email,
+      role: email === 'admin@admin.com' ? 'ADMIN' : 'USER',
+      balance: email === 'admin@admin.com' ? 10000 : 0, // Bonus for testing if admin
       name: email.split('@')[0],
-      joinedAt: new Date().toISOString(),
-      avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`
-    };
-    
-    this.users.push(newUser);
-    this.save();
-    return newUser;
+      avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`
+    }]);
+
+    // Ignore duplicate key error if trigger already created it
+    if (profileError && !profileError.message.includes('duplicate key')) {
+      console.error("Profile creation error", profileError);
+    }
+
+    return this.getUserProfile(data.user.id, email);
   }
 
   // --- Users ---
 
+  async getUserProfile(userId: string, emailFallback?: string): Promise<User> {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .single();
+
+    if (error) {
+        // If profile doesn't exist yet (race condition), return partial
+        return {
+            id: userId,
+            email: emailFallback || '',
+            role: (emailFallback === 'admin@admin.com') ? UserRole.ADMIN : UserRole.USER,
+            balance: 0,
+            name: emailFallback?.split('@')[0] || 'User',
+            joinedAt: new Date().toISOString(),
+            avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${userId}`
+        };
+    }
+
+    return {
+      id: data.id,
+      email: data.email,
+      role: data.role as UserRole,
+      balance: data.balance || 0,
+      name: data.name,
+      joinedAt: data.created_at,
+      avatarUrl: data.avatar_url
+    };
+  }
+
   async updateUserAvatar(userId: string, base64Image: string): Promise<User> {
-    await delay(500);
-    const idx = this.users.findIndex(u => u.id === userId);
-    if (idx === -1) throw new Error('User not found');
+    // Supabase Storage would be better, but for now storing Base64 string in text column
+    const { error } = await supabase
+      .from('profiles')
+      .update({ avatar_url: base64Image })
+      .eq('id', userId);
 
-    // "Old picture must remove" - in mock we simply overwrite
-    this.users[idx].avatarUrl = base64Image;
-    this.save();
-    
-    // Update posts to reflect new avatar
-    this.posts = this.posts.map(p => p.userId === userId ? { ...p, userAvatar: base64Image } : p);
-    this.save();
-
-    return this.users[idx];
+    if (error) throw new Error(error.message);
+    return this.getUserProfile(userId);
   }
 
   async adminUpdateUser(userId: string, data: Partial<User>): Promise<User> {
-    const idx = this.users.findIndex(u => u.id === userId);
-    if (idx === -1) throw new Error('User not found');
+    const updates: any = {};
+    if (data.name) updates.name = data.name;
+    if (data.balance !== undefined) updates.balance = data.balance;
+    // Note: Email/Password update via Admin API is restricted in Supabase Client.
+    // We update the profile data only.
     
-    this.users[idx] = { ...this.users[idx], ...data };
-    this.save();
-    return this.users[idx];
+    const { error } = await supabase
+      .from('profiles')
+      .update(updates)
+      .eq('id', userId);
+      
+    if (error) throw new Error(error.message);
+    return this.getUserProfile(userId);
   }
 
   async getAllUsers(): Promise<User[]> {
-    return this.users;
+    const { data, error } = await supabase.from('profiles').select('*');
+    if (error) return [];
+    
+    return data.map((d: any) => ({
+      id: d.id,
+      email: d.email,
+      role: d.role as UserRole,
+      balance: d.balance,
+      name: d.name,
+      joinedAt: d.created_at,
+      avatarUrl: d.avatar_url
+    }));
   }
 
   // --- Posts ---
 
   async createPost(userId: string, content: string, type: 'text' | 'link'): Promise<Post> {
-    await delay(300);
-    const user = this.users.find(u => u.id === userId);
-    const newPost: Post = {
-      id: Math.random().toString(36).substr(2, 9),
-      userId,
-      userEmail: user?.email || '',
-      userAvatar: user?.avatarUrl,
+    const { data, error } = await supabase.from('posts').insert([{
+      user_id: userId,
       content,
       type,
       views: 0,
       sponsored: false,
       likes: 0,
       hearts: 0,
-      hahas: 0,
-      createdAt: new Date().toISOString(),
+      hahas: 0
+    }]).select().single();
+
+    if (error) throw new Error(error.message);
+    
+    // We need user details to return a full Post object
+    const user = await this.getUserProfile(userId);
+    return {
+      id: data.id,
+      userId: data.user_id,
+      userEmail: user.email,
+      userAvatar: user.avatarUrl,
+      content: data.content,
+      type: data.type,
+      views: data.views,
+      sponsored: data.sponsored,
+      likes: data.likes,
+      hearts: data.hearts,
+      hahas: data.hahas,
+      createdAt: data.created_at
     };
-    this.posts.unshift(newPost);
-    this.save();
-    return newPost;
   }
 
   async getFeed(): Promise<Post[]> {
-    // Simulate traffic logic
-    const sponsoredPosts = this.posts.filter(p => p.sponsored);
-    const regularPosts = this.posts.filter(p => !p.sponsored);
+    const { data, error } = await supabase
+      .from('posts')
+      .select('*, profiles(email, avatar_url)')
+      .order('created_at', { ascending: false });
 
-    // Sponsored posts get aggressive view counts
-    sponsoredPosts.forEach(p => {
-       if (Math.random() > 0.3) {
-         p.views += Math.floor(Math.random() * 500) + 100; 
-       }
-    });
+    if (error) {
+        console.error("Get feed error", error);
+        return [];
+    }
 
-    // Regular posts get slow view counts
-    regularPosts.forEach(p => {
-      if (Math.random() > 0.8) {
-        p.views += Math.floor(Math.random() * 5) + 1;
-      }
-    });
-
-    this.save();
-    return [...this.posts];
+    return data.map((p: any) => ({
+      id: p.id,
+      userId: p.user_id,
+      userEmail: p.profiles?.email || 'Unknown',
+      userAvatar: p.profiles?.avatar_url,
+      content: p.content,
+      type: p.type,
+      views: p.views,
+      sponsored: p.sponsored,
+      likes: p.likes,
+      hearts: p.hearts,
+      hahas: p.hahas,
+      createdAt: p.created_at
+    }));
   }
 
   async getUserPosts(userId: string): Promise<Post[]> {
-    return this.posts.filter(p => p.userId === userId);
+    const { data, error } = await supabase
+      .from('posts')
+      .select('*, profiles(email, avatar_url)')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (error) return [];
+
+    return data.map((p: any) => ({
+      id: p.id,
+      userId: p.user_id,
+      userEmail: p.profiles?.email || 'Unknown',
+      userAvatar: p.profiles?.avatar_url,
+      content: p.content,
+      type: p.type,
+      views: p.views,
+      sponsored: p.sponsored,
+      likes: p.likes,
+      hearts: p.hearts,
+      hahas: p.hahas,
+      createdAt: p.created_at
+    }));
   }
 
   async reactToPost(postId: string, reaction: 'likes' | 'hearts' | 'hahas'): Promise<void> {
-    const post = this.posts.find(p => p.id === postId);
-    if (post) {
-      post[reaction]++;
-      this.save();
+    // Basic increment, ideally use RPC for atomicity but client-side read-modify-write is okay for demo
+    const { data } = await supabase.from('posts').select(reaction).eq('id', postId).single();
+    if (data) {
+      const newVal = (data as any)[reaction] + 1;
+      await supabase.from('posts').update({ [reaction]: newVal }).eq('id', postId);
     }
   }
 
   async sponsorPost(postId: string, amount: number): Promise<void> {
-    const post = this.posts.find(p => p.id === postId);
-    const user = this.users.find(u => u.id === post?.userId);
+    // 1. Check Balance
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error("Not logged in");
+
+    const profile = await this.getUserProfile(user.id);
+    if (profile.balance < amount) throw new Error("Insufficient balance");
+
+    // 2. Create Transaction
+    const { error: txError } = await supabase.from('transactions').insert([{
+      user_id: user.id,
+      type: 'AD_SPEND',
+      amount: amount,
+      status: 'COMPLETED',
+      post_id: postId
+    }]);
+    if (txError) throw new Error(txError.message);
+
+    // 3. Deduct Balance
+    await supabase.from('profiles').update({ balance: profile.balance - amount }).eq('id', user.id);
+
+    // 4. Update Post (Mark sponsored and boost views)
+    const estimatedViews = Math.floor((amount / this.settings.adCostPer100kViews) * 100000);
+    const boost = Math.floor(estimatedViews * 0.1);
     
-    if (post && user) {
-        if (user.balance < amount) throw new Error("Insufficient balance");
-        
-        user.balance -= amount;
-        post.sponsored = true;
-        
-        // Boost views immediately to simulate the "start" of the campaign
-        // Rate: 0.1 USD = 100,000 views.
-        // Views = (Amount / 0.1) * 100,000
-        const estimatedViews = Math.floor((amount / this.settings.adCostPer100kViews) * 100000);
-        post.views += Math.floor(estimatedViews * 0.1); // Add 10% immediately as a "boost" start
-        
-        this.transactions.push({
-            id: Math.random().toString(36).substr(2, 9),
-            userId: user.id,
-            type: 'AD_SPEND',
-            amount: amount,
-            status: 'COMPLETED',
-            timestamp: new Date().toISOString(),
-            postId: postId // Store post ID to track spend per post
-        });
-        
-        this.save();
-    }
+    // Fetch current views
+    const { data: postData } = await supabase.from('posts').select('views').eq('id', postId).single();
+    const currentViews = postData?.views || 0;
+
+    await supabase.from('posts').update({ 
+        sponsored: true,
+        views: currentViews + boost 
+    }).eq('id', postId);
   }
 
   // --- Wallet ---
 
   async deposit(userId: string, amount: number, network: NetworkType): Promise<void> {
-    await delay(1500); 
-    const user = this.users.find(u => u.id === userId);
-    if (!user) return;
-
-    user.balance += amount;
-    this.transactions.push({
-      id: Math.random().toString(36).substr(2, 9),
-      userId,
+    const { error } = await supabase.from('transactions').insert([{
+      user_id: userId,
       type: 'DEPOSIT',
       amount,
       network,
       status: 'COMPLETED',
-      timestamp: new Date().toISOString(),
-      txHash: '0x' + Math.random().toString(36).substr(2, 20)
-    });
-    this.save();
+      tx_hash: '0x' + Math.random().toString(36).substr(2, 20)
+    }]);
+
+    if (error) throw new Error(error.message);
+
+    // Update balance
+    const profile = await this.getUserProfile(userId);
+    await supabase.from('profiles').update({ balance: profile.balance + amount }).eq('id', userId);
   }
 
   async requestWithdraw(userId: string, amount: number, network: NetworkType): Promise<void> {
-    await delay(500);
-    const user = this.users.find(u => u.id === userId);
-    if (!user) throw new Error('User not found');
-    if (user.balance < amount) throw new Error('Insufficient balance');
-    if (amount < this.settings.minWithdraw) throw new Error(`Minimum withdraw is ${this.settings.minWithdraw} USD`);
+    const profile = await this.getUserProfile(userId);
+    if (profile.balance < amount) throw new Error('Insufficient balance');
 
-    user.balance -= amount;
-    
-    this.transactions.push({
-      id: Math.random().toString(36).substr(2, 9),
-      userId,
+    // Deduct immediately
+    await supabase.from('profiles').update({ balance: profile.balance - amount }).eq('id', userId);
+
+    const { error } = await supabase.from('transactions').insert([{
+      user_id: userId,
       type: 'WITHDRAW',
       amount,
       network,
-      status: 'PENDING',
-      timestamp: new Date().toISOString()
-    });
-    this.save();
+      status: 'PENDING'
+    }]);
+
+    if (error) throw new Error(error.message);
   }
 
   async getUserTransactions(userId: string): Promise<Transaction[]> {
-    return this.transactions.filter(t => t.userId === userId);
+    const { data, error } = await supabase
+      .from('transactions')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (error) return [];
+
+    return data.map((t: any) => ({
+      id: t.id,
+      userId: t.user_id,
+      type: t.type,
+      amount: t.amount,
+      network: t.network,
+      status: t.status,
+      timestamp: t.created_at,
+      txHash: t.tx_hash,
+      postId: t.post_id
+    }));
   }
 
   // --- Admin ---
@@ -275,27 +332,58 @@ class MockDB {
 
   async updateSettings(newSettings: Partial<SystemSettings>): Promise<void> {
     this.settings = { ...this.settings, ...newSettings };
-    this.save();
+    localStorage.setItem('tf_settings', JSON.stringify(this.settings));
   }
 
   async getPendingWithdrawals(): Promise<Transaction[]> {
-    return this.transactions.filter(t => t.type === 'WITHDRAW' && t.status === 'PENDING');
+    const { data, error } = await supabase
+      .from('transactions')
+      .select('*')
+      .eq('type', 'WITHDRAW')
+      .eq('status', 'PENDING');
+
+    if (error) return [];
+    
+    return data.map((t: any) => ({
+      id: t.id,
+      userId: t.user_id,
+      type: t.type,
+      amount: t.amount,
+      network: t.network,
+      status: t.status,
+      timestamp: t.created_at,
+      txHash: t.tx_hash
+    }));
   }
 
   async processWithdrawal(txId: string, approved: boolean): Promise<void> {
-    const tx = this.transactions.find(t => t.id === txId);
-    if (!tx) return;
+    const status = approved ? 'COMPLETED' : 'REJECTED';
+    const { error } = await supabase
+      .from('transactions')
+      .update({ status })
+      .eq('id', txId);
 
-    tx.status = approved ? 'COMPLETED' : 'REJECTED';
-    
+    if (error) throw new Error(error.message);
+
     if (!approved) {
-      const user = this.users.find(u => u.id === tx.userId);
-      if (user) {
-        user.balance += tx.amount;
+      // Refund
+      const { data: tx } = await supabase.from('transactions').select('user_id, amount').eq('id', txId).single();
+      if (tx) {
+         const profile = await this.getUserProfile(tx.user_id);
+         await supabase.from('profiles').update({ balance: profile.balance + tx.amount }).eq('id', tx.user_id);
       }
     }
-    this.save();
+  }
+
+  async checkConnection(): Promise<boolean> {
+      try {
+          const { error } = await supabase.from('profiles').select('count', { count: 'exact', head: true });
+          if (error && error.code === '42P01') return false; // Undefined table
+          return true;
+      } catch (e) {
+          return false;
+      }
   }
 }
 
-export const mockDB = new MockDB();
+export const mockDB = new DBService();

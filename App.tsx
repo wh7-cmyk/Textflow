@@ -6,6 +6,131 @@ import {
 import { mockDB } from './services/mockDb';
 import { generateSamplePosts } from './services/geminiService';
 
+// --- SQL Modal for Supabase Setup ---
+const SupabaseSetup = ({ onClose }: { onClose: () => void }) => {
+  const sql = `
+-- RUN THIS IN YOUR SUPABASE SQL EDITOR
+
+-- 1. Enable UUIDs
+create extension if not exists "uuid-ossp";
+
+-- 2. Create Profiles Table
+create table public.profiles (
+  id uuid references auth.users not null primary key,
+  email text,
+  role text default 'USER',
+  balance numeric default 0,
+  name text,
+  avatar_url text,
+  created_at timestamp with time zone default timezone('utc'::text, now())
+);
+
+-- 3. Create Posts Table
+create table public.posts (
+  id uuid default uuid_generate_v4() primary key,
+  user_id uuid references public.profiles(id),
+  content text,
+  type text,
+  views int default 0,
+  sponsored boolean default false,
+  likes int default 0,
+  hearts int default 0,
+  hahas int default 0,
+  created_at timestamp with time zone default timezone('utc'::text, now())
+);
+
+-- 4. Create Transactions Table
+create table public.transactions (
+  id uuid default uuid_generate_v4() primary key,
+  user_id uuid references public.profiles(id),
+  type text,
+  amount numeric,
+  network text,
+  status text,
+  tx_hash text,
+  post_id uuid references public.posts(id),
+  created_at timestamp with time zone default timezone('utc'::text, now())
+);
+
+-- 5. Enable RLS (Optional for demo but good practice)
+alter table public.profiles enable row level security;
+create policy "Public profiles are viewable by everyone" on public.profiles for select using (true);
+create policy "Users can insert their own profile" on public.profiles for insert with check (auth.uid() = id);
+create policy "Users can update own profile" on public.profiles for update using (auth.uid() = id);
+
+alter table public.posts enable row level security;
+create policy "Posts are viewable by everyone" on public.posts for select using (true);
+create policy "Users can create posts" on public.posts for insert with check (auth.uid() = user_id);
+create policy "Users can update own posts" on public.posts for update using (auth.uid() = user_id);
+
+alter table public.transactions enable row level security;
+create policy "Users view own txs" on public.transactions for select using (auth.uid() = user_id);
+create policy "Users create txs" on public.transactions for insert with check (auth.uid() = user_id);
+  `;
+
+  return (
+    <div className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center p-4">
+      <div className="bg-slate-800 rounded-xl max-w-2xl w-full p-6 border border-red-500 shadow-2xl overflow-y-auto max-h-[90vh]">
+        <h2 className="text-2xl font-bold text-red-400 mb-2">⚠️ Database Setup Required</h2>
+        <p className="text-slate-300 mb-4">You have connected Supabase but the tables are missing. Please copy the SQL below and run it in your Supabase SQL Editor.</p>
+        <div className="bg-slate-950 p-4 rounded-lg border border-slate-700 mb-4 relative group">
+           <pre className="text-xs text-green-400 font-mono whitespace-pre-wrap">{sql}</pre>
+           <button 
+             onClick={() => navigator.clipboard.writeText(sql)}
+             className="absolute top-2 right-2 bg-white text-black text-xs font-bold px-3 py-1 rounded opacity-0 group-hover:opacity-100 transition"
+           >
+             Copy SQL
+           </button>
+        </div>
+        <button onClick={onClose} className="w-full bg-red-600 hover:bg-red-500 text-white font-bold py-3 rounded-lg">
+          I Have Run the SQL (Reload App)
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// --- Error Boundary ---
+// Fix: Added explicit interfaces for Props and State and updated class definition to fix TypeScript errors
+interface ErrorBoundaryProps {
+  children: React.ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: any;
+}
+
+class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: any): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: any, errorInfo: any) {
+    console.error("Uncaught error:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white p-8">
+          <div className="max-w-md bg-slate-800 p-6 rounded-xl border border-red-500/50">
+            <h1 className="text-xl font-bold text-red-400 mb-4">Something went wrong</h1>
+            <p className="text-slate-400 text-sm mb-4">{this.state.error?.message}</p>
+            <button onClick={() => window.location.reload()} className="bg-indigo-600 px-4 py-2 rounded text-sm font-bold">Reload Application</button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 // --- Icons ---
 const HeartIcon = ({ filled }: { filled?: boolean }) => (
   <svg xmlns="http://www.w3.org/2000/svg" fill={filled ? "currentColor" : "none"} viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={`w-5 h-5 ${filled ? 'text-red-500' : ''}`}>
@@ -119,12 +244,8 @@ const EditUserModal = ({ user, onClose, onSave }: { user: User, onClose: () => v
             <input value={formData.name} onChange={e => handleChange('name', e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white" />
           </div>
           <div>
-            <label className="text-xs text-slate-400">Email</label>
-            <input value={formData.email} onChange={e => handleChange('email', e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white" />
-          </div>
-          <div>
-            <label className="text-xs text-slate-400">Password</label>
-            <input value={formData.password} onChange={e => handleChange('password', e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white" type="text" placeholder="Enter new password" />
+            <label className="text-xs text-slate-400">Email (Read Only)</label>
+            <input value={formData.email} readOnly className="w-full bg-slate-900/50 border border-slate-700 rounded p-2 text-slate-500 cursor-not-allowed" />
           </div>
           <div>
             <label className="text-xs text-slate-400">Balance (USDT)</label>
@@ -236,10 +357,14 @@ const CreatePost = ({ onPost }: { onPost: () => void }) => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!content.trim()) return;
-    await mockDB.createPost(user.id, content, isLink ? 'link' : 'text');
-    setContent('');
-    setIsLink(false);
-    onPost();
+    try {
+        await mockDB.createPost(user.id, content, isLink ? 'link' : 'text');
+        setContent('');
+        setIsLink(false);
+        onPost();
+    } catch (e:any) {
+        alert("Failed to post: " + e.message);
+    }
   };
 
   return (
@@ -282,32 +407,31 @@ const Feed = () => {
   const [loading, setLoading] = useState(true);
 
   const loadFeed = async () => {
-    const currentPosts = await mockDB.getFeed();
-    if (currentPosts.length < 3) {
-      const aiPosts = await generateSamplePosts();
-      const admin = (await mockDB.getAllUsers()).find(u => u.role === UserRole.ADMIN);
-      if (admin) {
-        for (const txt of aiPosts) {
-          await mockDB.createPost(admin.id, txt, 'text');
-        }
-      }
+    try {
+        const currentPosts = await mockDB.getFeed();
+        setPosts(currentPosts);
+    } catch (e) {
+        console.error("Feed error", e);
+    } finally {
+        setLoading(false);
     }
-    setPosts(await mockDB.getFeed());
-    setLoading(false);
   };
 
   useEffect(() => {
     loadFeed();
     const interval = setInterval(async () => {
        // Live update view counts
-       const fresh = await mockDB.getFeed();
-       setPosts(fresh);
-    }, 5000);
+       try {
+        const fresh = await mockDB.getFeed();
+        setPosts(fresh);
+       } catch (e) {}
+    }, 10000);
     return () => clearInterval(interval);
   }, []);
 
   const handleReact = async (id: string, type: 'likes' | 'hearts' | 'hahas') => {
     await mockDB.reactToPost(id, type);
+    // Optimistic update
     setPosts(prev => prev.map(p => p.id === id ? { ...p, [type]: p[type] + 1 } : p));
   };
 
@@ -319,7 +443,11 @@ const Feed = () => {
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500"></div>
         </div>
       ) : (
-        posts.map(post => <PostCard key={post.id} post={post} onReact={handleReact} />)
+        posts.length === 0 ? (
+            <div className="text-center py-10 text-slate-500">No posts yet. Be the first!</div>
+        ) : (
+            posts.map(post => <PostCard key={post.id} post={post} onReact={handleReact} />)
+        )
       )}
     </div>
   );
@@ -332,29 +460,33 @@ const AdvertiserPanel = ({ user }: { user: User }) => {
 
   useEffect(() => {
     const loadData = async () => {
-      const allPosts = await mockDB.getUserPosts(user.id);
-      const sponsoredPosts = allPosts.filter(p => p.sponsored);
-      const transactions = await mockDB.getUserTransactions(user.id);
-      
-      const adSpends = transactions.filter(t => t.type === 'AD_SPEND');
-      const totalSpent = adSpends.reduce((acc, curr) => acc + curr.amount, 0);
-      const totalViews = sponsoredPosts.reduce((acc, curr) => acc + curr.views, 0);
+      try {
+        const allPosts = await mockDB.getUserPosts(user.id);
+        const sponsoredPosts = allPosts.filter(p => p.sponsored);
+        const transactions = await mockDB.getUserTransactions(user.id);
+        
+        const adSpends = transactions.filter(t => t.type === 'AD_SPEND');
+        const totalSpent = adSpends.reduce((acc, curr) => acc + curr.amount, 0);
+        const totalViews = sponsoredPosts.reduce((acc, curr) => acc + curr.views, 0);
 
-      const detailedCampaigns = sponsoredPosts.map(post => {
-        // Aggregate spend for this specific post
-        const postSpend = adSpends
-          .filter(t => t.postId === post.id)
-          .reduce((acc, curr) => acc + curr.amount, 0);
-        return { post, spend: postSpend };
-      });
+        const detailedCampaigns = sponsoredPosts.map(post => {
+            const postSpend = adSpends
+            .filter(t => t.postId === post.id)
+            .reduce((acc, curr) => acc + curr.amount, 0);
+            return { post, spend: postSpend };
+        });
 
-      setStats({
-        spent: totalSpent,
-        views: totalViews,
-        count: sponsoredPosts.length
-      });
-      setCampaigns(detailedCampaigns);
-      setLoading(false);
+        setStats({
+            spent: totalSpent,
+            views: totalViews,
+            count: sponsoredPosts.length
+        });
+        setCampaigns(detailedCampaigns);
+      } catch (e) {
+          console.error(e);
+      } finally {
+          setLoading(false);
+      }
     };
     loadData();
   }, [user.id]);
@@ -454,8 +586,12 @@ const Profile = ({ user }: { user: User }) => {
       const reader = new FileReader();
       reader.onloadend = async () => {
         const base64String = reader.result as string;
-        await mockDB.updateUserAvatar(user.id, base64String);
-        window.location.reload(); 
+        try {
+            await mockDB.updateUserAvatar(user.id, base64String);
+            window.location.reload(); 
+        } catch(e:any) {
+            alert("Upload failed: " + e.message);
+        }
       };
       reader.readAsDataURL(file);
     }
@@ -467,13 +603,7 @@ const Profile = ({ user }: { user: User }) => {
       await mockDB.sponsorPost(sponsorPost.id, amount);
       setTrigger(t => t + 1);
       setSponsorPost(null);
-      // Redirect to Advertiser Dashboard
       navigate('/advertiser');
-      // We don't need window.reload here because navigate changes component tree, 
-      // but App state 'user' balance might be stale.
-      // In a real app we'd use context/redux. Here, the Advertiser page fetches fresh data.
-      // However, Navbar balance will be stale until refresh or global state update.
-      // For this mock, we accept Navbar might be slightly stale until next action/reload.
     } catch (e: any) {
       alert(e.message);
     }
@@ -554,9 +684,14 @@ const Wallet = ({ user }: { user: User }) => {
     setQrState('LISTENING');
     // Simulate Blockchain Listening
     setTimeout(async () => {
-        await mockDB.deposit(user.id, parseFloat(amount) || 100, network);
-        setQrState('SUCCESS');
-        setTimeout(() => window.location.reload(), 1500);
+        try {
+            await mockDB.deposit(user.id, parseFloat(amount) || 100, network);
+            setQrState('SUCCESS');
+            setTimeout(() => window.location.reload(), 1500);
+        } catch(e:any) {
+            setQrState('IDLE');
+            alert(e.message);
+        }
     }, 3000);
   };
 
@@ -680,17 +815,25 @@ const AdminPanel = () => {
     mockDB.getSettings().then(setSettings);
     mockDB.getAllUsers().then(setUsers);
     mockDB.getPendingWithdrawals().then(setWithdrawals);
-  }, [editUser]); // Reload when editUser closes/changes essentially
+  }, [editUser]);
 
   const handleProcess = async (id: string, approve: boolean) => {
-    await mockDB.processWithdrawal(id, approve);
-    setWithdrawals(await mockDB.getPendingWithdrawals());
+    try {
+        await mockDB.processWithdrawal(id, approve);
+        setWithdrawals(await mockDB.getPendingWithdrawals());
+    } catch(e:any) {
+        alert(e.message);
+    }
   };
 
   const handleSaveUser = async (id: string, data: Partial<User>) => {
-      await mockDB.adminUpdateUser(id, data);
-      setEditUser(null);
-      setUsers(await mockDB.getAllUsers());
+      try {
+        await mockDB.adminUpdateUser(id, data);
+        setEditUser(null);
+        setUsers(await mockDB.getAllUsers());
+      } catch(e:any) {
+          alert(e.message);
+      }
   };
 
   if (!settings) return null;
@@ -736,7 +879,6 @@ const AdminPanel = () => {
                         <td className="px-6 py-4">
                             <div className="flex flex-col">
                                 <span className="text-white">{u.email}</span>
-                                <span className="text-xs text-slate-600 font-mono">Pass: {u.password || 'N/A'}</span>
                             </div>
                         </td>
                         <td className="px-6 py-4 font-mono text-green-400">${u.balance.toFixed(2)}</td>
@@ -879,13 +1021,32 @@ const Auth = ({ onLogin }: { onLogin: (u: User) => void }) => {
 const App = () => {
   const [user, setUser] = useState<User | null>(null);
   const [initializing, setInitializing] = useState(true);
+  const [showSetup, setShowSetup] = useState(false);
 
   useEffect(() => {
-    const stored = localStorage.getItem('tf_current_user');
-    if (stored) {
-      setUser(JSON.parse(stored));
-    }
-    setInitializing(false);
+    const init = async () => {
+        // Check DB Connection
+        const isConnected = await mockDB.checkConnection();
+        if (!isConnected) {
+            setShowSetup(true);
+            setInitializing(false);
+            return;
+        }
+
+        const stored = localStorage.getItem('tf_current_user');
+        if (stored) {
+            // Verify token validity or fetch fresh profile
+            try {
+                const parsed = JSON.parse(stored);
+                // We trust localstorage for speed, but ideally verify with DB
+                setUser(parsed);
+            } catch(e) {
+                localStorage.removeItem('tf_current_user');
+            }
+        }
+        setInitializing(false);
+    };
+    init();
   }, []);
 
   const handleLogout = () => {
@@ -896,23 +1057,26 @@ const App = () => {
   if (initializing) return <div className="h-screen bg-slate-900 text-white flex items-center justify-center">Loading...</div>;
 
   return (
-    <HashRouter>
-      {!user ? (
-        <Auth onLogin={setUser} />
-      ) : (
-        <div className="min-h-screen bg-slate-900 text-slate-100 font-sans selection:bg-indigo-500/30">
-          <Navbar user={user} onLogout={handleLogout} />
-          <Routes>
-            <Route path="/" element={<Feed />} />
-            <Route path="/profile" element={<Profile user={user} />} />
-            <Route path="/wallet" element={<Wallet user={user} />} />
-            <Route path="/advertiser" element={<AdvertiserPanel user={user} />} />
-            <Route path="/admin" element={user.role === UserRole.ADMIN ? <AdminPanel /> : <Navigate to="/" />} />
-            <Route path="*" element={<Navigate to="/" />} />
-          </Routes>
-        </div>
-      )}
-    </HashRouter>
+    <ErrorBoundary>
+        <HashRouter>
+        {showSetup && <SupabaseSetup onClose={() => window.location.reload()} />}
+        {!user ? (
+            <Auth onLogin={setUser} />
+        ) : (
+            <div className="min-h-screen bg-slate-900 text-slate-100 font-sans selection:bg-indigo-500/30">
+            <Navbar user={user} onLogout={handleLogout} />
+            <Routes>
+                <Route path="/" element={<Feed />} />
+                <Route path="/profile" element={<Profile user={user} />} />
+                <Route path="/wallet" element={<Wallet user={user} />} />
+                <Route path="/advertiser" element={<AdvertiserPanel user={user} />} />
+                <Route path="/admin" element={user.role === UserRole.ADMIN ? <AdminPanel /> : <Navigate to="/" />} />
+                <Route path="*" element={<Navigate to="/" />} />
+            </Routes>
+            </div>
+        )}
+        </HashRouter>
+    </ErrorBoundary>
   );
 };
 

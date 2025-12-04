@@ -1,31 +1,11 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
-// Use the provided key as a fallback if env var is missing or process is undefined
-const FALLBACK_KEY = "AIzaSyASR3vX2WLolNVwKr0wtLLMjMnghFJuUAU";
+// Hardcoded key provided by user to prevent env var issues
+const API_KEY = "AIzaSyASR3vX2WLolNVwKr0wtLLMjMnghFJuUAU";
 
 export const generateSamplePosts = async (): Promise<string[]> => {
   try {
-    let apiKey = FALLBACK_KEY;
-
-    // Safely check for environment variable without crashing if 'process' is undefined
-    try {
-      if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
-        apiKey = process.env.API_KEY;
-      }
-    } catch (e) {
-      // Ignore reference error if process is not defined
-    }
-
-    if (!apiKey) {
-      console.warn("No Gemini API Key found. Returning fallback posts.");
-      return [
-        "Just learned about the new crypto regulations. Interesting times ahead! #crypto",
-        "Who else is bullish on USDT stability? 🚀",
-        "Check out this cool resource for React developers: https://react.dev",
-      ];
-    }
-
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = new GoogleGenAI({ apiKey: API_KEY });
     
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',

@@ -21,12 +21,21 @@
     "react": "https://aistudiocdn.com/react@^19.2.1",
     "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
     "@google/genai": "https://aistudiocdn.com/@google/genai@^1.31.0",
-    "react-router-dom": "https://aistudiocdn.com/react-router-dom@^7.10.1"
+    "react-router-dom": "https://aistudiocdn.com/react-router-dom@^7.10.1",
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.47.10"
   }
 }
 </script>
 </head>
   <body>
     <div id="root"></div>
+    <script>
+      window.addEventListener('error', function(e) {
+        const root = document.getElementById('root');
+        if (root && root.innerHTML === '') {
+          document.body.innerHTML = '<div style="color:red; padding: 20px;"><h1>Application Error</h1><p>'+e.message+'</p></div>';
+        }
+      });
+    </script>
   </body>
 </html>
