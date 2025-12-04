@@ -1,3 +1,4 @@
+
 export enum UserRole {
   ADMIN = 'ADMIN',
   USER = 'USER',
@@ -52,4 +53,6 @@ export interface SystemSettings {
   sponsorAdPricePer1kViews: number; // Advertiser Cost (1 USD default per 1k views)
   minWithdraw: number; // 50 USD default
   adminWalletAddress: string;
+  aboutContent?: string;
+  policyContent?: string;
 }

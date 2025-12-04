@@ -1,3 +1,4 @@
+
 import { User, Post, Transaction, UserRole, SystemSettings, NetworkType } from '../types';
 import { supabase } from './supabaseClient';
 
@@ -8,6 +9,8 @@ class DBService {
     sponsorAdPricePer1kViews: 1.0, // Advertiser pays $1.0 per 1k views
     minWithdraw: 50,
     adminWalletAddress: '0xAdminWalletAddress123456789',
+    aboutContent: "## About TextFlow\n\nTextFlow is the premier platform for text-based creators to monetize their thoughts.\n\n### Our Mission\nTo empower writers through crypto micropayments and provide a censorship-resistant platform for sharing ideas.",
+    policyContent: "## Privacy Policy\n\n1. **Data Collection**: We collect email and basic profile info to facilitate account management and payments.\n2. **Payments**: All payments are processed via USDT (TRC20/ERC20/BEP20) on the blockchain.\n3. **Content**: We do not allow illegal content. Community guidelines apply to all posts.",
   };
 
   constructor() {

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate, Link, useNavigate, useParams } from 'react-router-dom';
 import { 
@@ -312,6 +313,10 @@ const Navbar = ({ user, onLogout }: { user: User; onLogout: () => void }) => (
     <div className="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between">
       <Link to="/" className="text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400 tracking-tight">TextFlow</Link>
       <div className="flex items-center gap-4">
+        <div className="hidden md:flex gap-4 mr-2">
+            <Link to="/about" className="text-sm text-slate-400 hover:text-white transition">About</Link>
+            <Link to="/policy" className="text-sm text-slate-400 hover:text-white transition">Policy</Link>
+        </div>
         {user.role === UserRole.ADMIN && (
           <Link to="/admin" className="text-sm font-medium text-slate-300 hover:text-white transition">Admin</Link>
         )}
@@ -484,6 +489,28 @@ const CreatePost = ({ onPost }: { onPost: () => void }) => {
 };
 
 // --- Pages ---
+
+const AboutPage = () => {
+    const [content, setContent] = useState('');
+    useEffect(() => { mockDB.getSettings().then(s => setContent(s.aboutContent || '')); }, []);
+    return (
+      <div className="max-w-4xl mx-auto py-12 px-4 text-slate-300">
+          <h1 className="text-3xl font-black text-white mb-8 border-b border-slate-700 pb-4">About Us</h1>
+          <div className="whitespace-pre-wrap leading-relaxed bg-slate-800 p-8 rounded-2xl border border-slate-700 shadow-xl">{content}</div>
+      </div>
+    );
+};
+
+const PolicyPage = () => {
+    const [content, setContent] = useState('');
+    useEffect(() => { mockDB.getSettings().then(s => setContent(s.policyContent || '')); }, []);
+    return (
+      <div className="max-w-4xl mx-auto py-12 px-4 text-slate-300">
+          <h1 className="text-3xl font-black text-white mb-8 border-b border-slate-700 pb-4">Privacy & Policy</h1>
+          <div className="whitespace-pre-wrap leading-relaxed bg-slate-800 p-8 rounded-2xl border border-slate-700 shadow-xl">{content}</div>
+      </div>
+    );
+};
 
 const Feed = () => {
   const [posts, setPosts] = useState<Post[]>([]);
@@ -1074,6 +1101,23 @@ const AdminPanel = () => {
                         className="w-full bg-slate-900 border border-slate-600 p-3 rounded-xl text-white focus:border-indigo-500 outline-none font-mono text-sm" 
                     />
                 </div>
+                <div className="h-px bg-slate-700 my-4"></div>
+                <div>
+                    <label className="block text-sm font-semibold text-slate-300 mb-2">About Page Content</label>
+                    <textarea 
+                        defaultValue={settings.aboutContent}
+                        onChange={(e) => mockDB.updateSettings({ aboutContent: e.target.value })}
+                        className="w-full bg-slate-900 border border-slate-600 p-3 rounded-xl text-white focus:border-indigo-500 outline-none min-h-[100px]" 
+                    />
+                </div>
+                <div>
+                    <label className="block text-sm font-semibold text-slate-300 mb-2">Policy Page Content</label>
+                    <textarea 
+                        defaultValue={settings.policyContent}
+                        onChange={(e) => mockDB.updateSettings({ policyContent: e.target.value })}
+                        className="w-full bg-slate-900 border border-slate-600 p-3 rounded-xl text-white focus:border-indigo-500 outline-none min-h-[100px]" 
+                    />
+                </div>
              </div>
           </div>
       )}
@@ -1207,6 +1251,8 @@ const App = () => {
                 <Route path="/advertiser" element={<AdvertiserPanel user={user} />} />
                 <Route path="/admin" element={user.role === UserRole.ADMIN ? <AdminPanel /> : <Navigate to="/" />} />
                 <Route path="/post/:postId" element={<SinglePost />} />
+                <Route path="/about" element={<AboutPage />} />
+                <Route path="/policy" element={<PolicyPage />} />
                 <Route path="*" element={<Navigate to="/" />} />
             </Routes>
             </div>
