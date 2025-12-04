@@ -5,11 +5,12 @@ import { supabase } from './supabaseClient';
 // We implement the same interface as the old MockDB for compatibility
 class DBService {
   private settings: SystemSettings = {
+    siteName: "TextFlow",
     adCostPer100kViews: 0.1, // Creator earns $0.1 per 100k views
     sponsorAdPricePer1kViews: 1.0, // Advertiser pays $1.0 per 1k views
     minWithdraw: 50,
     adminWalletAddress: '0xAdminWalletAddress123456789',
-    aboutContent: "## About TextFlow\n\nTextFlow is the premier platform for text-based creators to monetize their thoughts.\n\n### Our Mission\nTo empower writers through crypto micropayments and provide a censorship-resistant platform for sharing ideas.",
+    aboutContent: "## About Us\n\nWe are the premier platform for text-based creators to monetize their thoughts.\n\n### Our Mission\nTo empower writers through crypto micropayments and provide a censorship-resistant platform for sharing ideas.",
     policyContent: "## Privacy Policy\n\n1. **Data Collection**: We collect email and basic profile info to facilitate account management and payments.\n2. **Payments**: All payments are processed via USDT (TRC20/ERC20/BEP20) on the blockchain.\n3. **Content**: We do not allow illegal content. Community guidelines apply to all posts.",
   };
 
@@ -406,19 +407,30 @@ class DBService {
   }
 
   async processWithdrawal(txId: string, approved: boolean): Promise<void> {
+    console.log(`Processing withdrawal ${txId}: ${approved ? 'Approve' : 'Reject'}`);
     const status = approved ? 'COMPLETED' : 'REJECTED';
+    
+    // 1. Update Transaction Status
     const { error } = await supabase
       .from('transactions')
       .update({ status })
       .eq('id', txId);
 
-    if (error) throw new Error(error.message);
+    if (error) {
+        console.error("Tx Update Error:", error);
+        throw new Error("Update Transaction Failed: " + error.message);
+    }
 
+    // 2. If rejected, refund user
     if (!approved) {
       const { data: tx } = await supabase.from('transactions').select('user_id, amount').eq('id', txId).single();
       if (tx) {
          const profile = await this.getUserProfile(tx.user_id);
-         await supabase.from('profiles').update({ balance: profile.balance + tx.amount }).eq('id', tx.user_id);
+         const { error: profileError } = await supabase.from('profiles').update({ balance: profile.balance + tx.amount }).eq('id', tx.user_id);
+         if (profileError) {
+             console.error("Refund Error:", profileError);
+             throw new Error("Refund Failed: " + profileError.message);
+         }
       }
     }
   }

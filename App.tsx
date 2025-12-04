@@ -75,7 +75,20 @@ alter table public.transactions enable row level security;
 create policy "Users view own txs" on public.transactions for select using (auth.uid() = user_id);
 create policy "Users create txs" on public.transactions for insert with check (auth.uid() = user_id);
 
--- 7. SETUP AUTO-ADMIN TRIGGER
+-- 7. ADMIN POLICIES (Required for Admin Panel to work)
+create policy "Admins can view all transactions" on public.transactions for select using (
+  exists (select 1 from public.profiles where id = auth.uid() and role = 'ADMIN')
+);
+
+create policy "Admins can update transactions" on public.transactions for update using (
+  exists (select 1 from public.profiles where id = auth.uid() and role = 'ADMIN')
+);
+
+create policy "Admins can update any profile" on public.profiles for update using (
+  exists (select 1 from public.profiles where id = auth.uid() and role = 'ADMIN')
+);
+
+-- 8. SETUP AUTO-ADMIN TRIGGER
 -- This automatically makes 'admin@admin.com' an ADMIN with $10,000 balance when they sign up.
 create or replace function public.handle_new_user()
 returns trigger as $$
@@ -104,9 +117,9 @@ create trigger on_auth_user_created
         <h2 className="text-2xl font-bold text-red-400 mb-2">⚠️ Database Setup</h2>
         <div className="mb-4 text-slate-300 text-sm space-y-2">
             <p>1. Copy the SQL code below.</p>
-            <p>2. Run it in your Supabase SQL Editor to create tables and triggers.</p>
+            <p>2. Run it in your Supabase SQL Editor to create tables and permissions.</p>
             <p className="text-yellow-400 font-bold bg-yellow-400/10 p-2 rounded border border-yellow-400/30">
-               NOTE: If "admin@admin.com" already exists in Authentication, DELETE it first in Supabase Dashboard, then use "Create Account" here with password "666666".
+               NOTE: If you are having issues with Admin buttons (Approve/Reject), you MUST run this script to update permissions.
             </p>
         </div>
         <div className="bg-slate-950 p-4 rounded-lg border border-slate-700 mb-4 relative group">
@@ -308,10 +321,10 @@ const EditUserModal = ({ user, onClose, onSave }: { user: User, onClose: () => v
 
 // --- Components ---
 
-const Navbar = ({ user, onLogout }: { user: User; onLogout: () => void }) => (
+const Navbar = ({ user, onLogout, siteName }: { user: User; onLogout: () => void; siteName: string }) => (
   <nav className="sticky top-0 z-40 w-full bg-slate-900/90 border-b border-slate-800 backdrop-blur-md">
     <div className="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between">
-      <Link to="/" className="text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400 tracking-tight">TextFlow</Link>
+      <Link to="/" className="text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400 tracking-tight">{siteName}</Link>
       <div className="flex items-center gap-4">
         <div className="hidden md:flex gap-4 mr-2">
             <Link to="/about" className="text-sm text-slate-400 hover:text-white transition">About</Link>
@@ -357,7 +370,7 @@ const PostCard: React.FC<{ post: Post; onReact: (id: string, type: 'likes' | 'he
     if (navigator.share) {
       try {
         await navigator.share({
-          title: 'TextFlow Post',
+          title: 'Post',
           text: post.content,
           url: shareUrl
         });
@@ -952,6 +965,7 @@ const AdminPanel = () => {
   const [withdrawals, setWithdrawals] = useState<Transaction[]>([]);
   const [view, setView] = useState<'USERS' | 'WITHDRAWALS' | 'SETTINGS'>('USERS');
   const [editUser, setEditUser] = useState<User | null>(null);
+  const [showSql, setShowSql] = useState(false);
 
   useEffect(() => {
     mockDB.getSettings().then((s) => {
@@ -967,7 +981,11 @@ const AdminPanel = () => {
         await mockDB.processWithdrawal(id, approve);
         setWithdrawals(await mockDB.getPendingWithdrawals());
     } catch(e:any) {
-        alert(e.message);
+        if (e.message.includes("row-level security")) {
+            alert("⚠️ PERMISSION ERROR: You need to update the database policies.\n\nGo to the 'System' tab and click 'View Database Setup SQL'. Run that code in Supabase to fix this.");
+        } else {
+            alert(e.message);
+        }
     }
   };
 
@@ -996,6 +1014,7 @@ const AdminPanel = () => {
 
   return (
     <div className="max-w-6xl mx-auto py-10 px-6">
+      {showSql && <SupabaseSetup onClose={() => setShowSql(false)} />}
       {editUser && (
         <EditUserModal user={editUser} onClose={() => setEditUser(null)} onSave={handleSaveUser} />
       )}
@@ -1076,7 +1095,24 @@ const AdminPanel = () => {
       
       {view === 'SETTINGS' && (
           <div className="bg-slate-800 p-8 rounded-2xl border border-slate-700 shadow-xl max-w-2xl">
+             <div className="mb-6 bg-red-500/10 border border-red-500/30 p-4 rounded-xl flex justify-between items-center">
+                <div>
+                  <h3 className="text-red-400 font-bold text-sm">Database Configuration</h3>
+                  <p className="text-xs text-slate-400 mt-1">Run SQL to fix admin permissions.</p>
+                </div>
+                <button onClick={() => setShowSql(true)} className="bg-red-500 hover:bg-red-600 text-white text-xs font-bold px-3 py-2 rounded-lg">View Database Setup SQL</button>
+             </div>
              <div className="space-y-6">
+                <div>
+                    <label className="block text-sm font-semibold text-slate-300 mb-2">Website Name</label>
+                    <input 
+                        type="text" 
+                        value={draftSettings.siteName || "TextFlow"}
+                        onChange={(e) => setDraftSettings({ ...draftSettings, siteName: e.target.value })}
+                        className="w-full bg-slate-900 border border-slate-600 p-3 rounded-xl text-white focus:border-indigo-500 outline-none" 
+                    />
+                </div>
+                <div className="h-px bg-slate-700 my-4"></div>
                 <div>
                     <label className="block text-sm font-semibold text-slate-300 mb-2">Creator Earning Rate (USD per 100k views)</label>
                     <input 
@@ -1147,7 +1183,7 @@ const AdminPanel = () => {
   );
 };
 
-const Auth = ({ onLogin, onShowSetup }: { onLogin: (u: User) => void, onShowSetup: () => void }) => {
+const Auth = ({ onLogin, onShowSetup, siteName }: { onLogin: (u: User) => void, onShowSetup: () => void, siteName: string }) => {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -1184,7 +1220,7 @@ const Auth = ({ onLogin, onShowSetup }: { onLogin: (u: User) => void, onShowSetu
     <div className="min-h-screen flex items-center justify-center bg-slate-900 p-4 bg-[url('https://images.unsplash.com/photo-1639762681485-074b7f938ba0?q=80&w=2832&auto=format&fit=crop')] bg-cover bg-center">
       <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm"></div>
       <div className="relative w-full max-w-md bg-slate-800/90 p-8 rounded-3xl shadow-2xl border border-slate-700/50 backdrop-blur-xl">
-        <h1 className="text-4xl font-black text-center text-white mb-2 tracking-tight">TextFlow</h1>
+        <h1 className="text-4xl font-black text-center text-white mb-2 tracking-tight">{siteName}</h1>
         <p className="text-center text-slate-400 mb-8 font-medium">{isLogin ? 'Welcome back, Creator.' : 'Join the revolution.'}</p>
         
         {error && <div className="bg-red-500/10 border border-red-500/50 text-red-400 text-sm p-4 rounded-xl mb-6 flex items-center gap-2"><svg className="w-5 h-5 min-w-[20px]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg><span>{error}</span></div>}
@@ -1223,9 +1259,19 @@ const App = () => {
   const [user, setUser] = useState<User | null>(null);
   const [initializing, setInitializing] = useState(true);
   const [showSetup, setShowSetup] = useState(false);
+  const [siteName, setSiteName] = useState('TextFlow');
 
   useEffect(() => {
     const init = async () => {
+        // Load settings first
+        try {
+            const s = await mockDB.getSettings();
+            setSiteName(s.siteName || 'TextFlow');
+            document.title = s.siteName || 'TextFlow';
+        } catch (e) {
+            console.error("Settings load error", e);
+        }
+
         // Check DB Connection
         const isConnected = await mockDB.checkConnection();
         if (!isConnected) {
@@ -1262,10 +1308,10 @@ const App = () => {
         <HashRouter>
         {showSetup && <SupabaseSetup onClose={() => window.location.reload()} />}
         {!user ? (
-            <Auth onLogin={setUser} onShowSetup={() => setShowSetup(true)} />
+            <Auth onLogin={setUser} onShowSetup={() => setShowSetup(true)} siteName={siteName} />
         ) : (
             <div className="min-h-screen bg-slate-900 text-slate-100 font-sans selection:bg-indigo-500/30">
-            <Navbar user={user} onLogout={handleLogout} />
+            <Navbar user={user} onLogout={handleLogout} siteName={siteName} />
             <Routes>
                 <Route path="/" element={<Feed />} />
                 <Route path="/profile" element={<Profile user={user} />} />
