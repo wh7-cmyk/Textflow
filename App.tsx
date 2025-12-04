@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate, Link, useNavigate, useParams } from 'react-router-dom';
 import { 
-  User, Post, UserRole, NetworkType, Transaction, SystemSettings 
+  User, Post, UserRole, NetworkType, Transaction, SystemSettings, Comment 
 } from './types';
 import { mockDB } from './services/mockDb';
 import { generateSamplePosts } from './services/geminiService';
@@ -17,6 +17,7 @@ const SupabaseSetup = ({ onClose }: { onClose: () => void }) => {
 drop trigger if exists on_auth_user_created on auth.users;
 drop function if exists public.handle_new_user;
 drop table if exists public.transactions;
+drop table if exists public.comments;
 drop table if exists public.posts;
 drop table if exists public.profiles;
 
@@ -48,7 +49,16 @@ create table public.posts (
   created_at timestamp with time zone default timezone('utc'::text, now())
 );
 
--- 5. Create Transactions Table
+-- 5. Create Comments Table
+create table public.comments (
+  id uuid default uuid_generate_v4() primary key,
+  post_id uuid references public.posts(id) on delete cascade,
+  user_id uuid references public.profiles(id),
+  content text,
+  created_at timestamp with time zone default timezone('utc'::text, now())
+);
+
+-- 6. Create Transactions Table
 create table public.transactions (
   id uuid default uuid_generate_v4() primary key,
   user_id uuid references public.profiles(id),
@@ -61,7 +71,7 @@ create table public.transactions (
   created_at timestamp with time zone default timezone('utc'::text, now())
 );
 
--- 6. Enable Security (RLS)
+-- 7. Enable Security (RLS)
 alter table public.profiles enable row level security;
 create policy "Public profiles are viewable by everyone" on public.profiles for select using (true);
 create policy "Users can update own profile" on public.profiles for update using (auth.uid() = id);
@@ -72,11 +82,16 @@ create policy "Users can create posts" on public.posts for insert with check (au
 create policy "Users can update own posts" on public.posts for update using (auth.uid() = user_id);
 create policy "Users can delete own posts" on public.posts for delete using (auth.uid() = user_id);
 
+alter table public.comments enable row level security;
+create policy "Comments viewable by everyone" on public.comments for select using (true);
+create policy "Users can create comments" on public.comments for insert with check (auth.uid() = user_id);
+create policy "Users can delete own comments" on public.comments for delete using (auth.uid() = user_id);
+
 alter table public.transactions enable row level security;
 create policy "Users view own txs" on public.transactions for select using (auth.uid() = user_id);
 create policy "Users create txs" on public.transactions for insert with check (auth.uid() = user_id);
 
--- 7. ADMIN POLICIES (Required for Admin Panel to work)
+-- 8. ADMIN POLICIES (Required for Admin Panel to work)
 create policy "Admins can view all transactions" on public.transactions for select using (
   exists (select 1 from public.profiles where id = auth.uid() and role = 'ADMIN')
 );
@@ -89,7 +104,7 @@ create policy "Admins can update any profile" on public.profiles for update usin
   exists (select 1 from public.profiles where id = auth.uid() and role = 'ADMIN')
 );
 
--- 8. SETUP AUTO-ADMIN TRIGGER
+-- 9. SETUP AUTO-ADMIN TRIGGER
 -- This automatically makes 'admin@adminn.com' an ADMIN with $10,000 balance when they sign up.
 create or replace function public.handle_new_user()
 returns trigger as $$
@@ -120,7 +135,7 @@ create trigger on_auth_user_created
             <p>1. Copy the SQL code below.</p>
             <p>2. Run it in your Supabase SQL Editor to create tables and permissions.</p>
             <p className="text-yellow-400 font-bold bg-yellow-400/10 p-2 rounded border border-yellow-400/30">
-               NOTE: If you are having issues with Admin buttons or deleting posts, you MUST run this script to update permissions.
+               NOTE: To enable comments, edit/delete, and admin features, you MUST run this updated script.
             </p>
         </div>
         <div className="bg-slate-950 p-4 rounded-lg border border-slate-700 mb-4 relative group">
@@ -202,6 +217,11 @@ const FaceSmileIcon = () => (
 const ShareIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
     <path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.287.696.287 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.935 2.186 2.25 2.25 0 0 0-3.935-2.186Zm0-12.814a2.25 2.25 0 1 0 3.933-1.988 2.25 2.25 0 0 0-3.933 1.988Z" />
+  </svg>
+);
+const ChatBubbleIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 0 1 .865-.501 48.172 48.172 0 0 0 3.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" />
   </svg>
 );
 const ChartBarIcon = () => (
@@ -382,14 +402,29 @@ const PostCard: React.FC<{ post: Post; onReact: (id: string, type: 'likes' | 'he
   const [showShareMenu, setShowShareMenu] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(post.content);
+  const [showComments, setShowComments] = useState(false);
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [newComment, setNewComment] = useState('');
+  const [loadingComments, setLoadingComments] = useState(false);
 
   const isOwner = currentUser?.id === post.userId;
   
-  // Construct a specific URL for this post
-  // Note: Since we are in a SPA with HashRouter, the URL is window.location.origin + /#/post/ID
   const shareUrl = `${window.location.origin}/#/post/${post.id}`;
   const encodedUrl = encodeURIComponent(shareUrl);
   const encodedText = encodeURIComponent(post.content.length > 50 ? post.content.substring(0, 50) + "..." : post.content);
+
+  useEffect(() => {
+    if (showComments) {
+      loadComments();
+    }
+  }, [showComments, post.id]);
+
+  const loadComments = async () => {
+    setLoadingComments(true);
+    const data = await mockDB.getPostComments(post.id);
+    setComments(data);
+    setLoadingComments(false);
+  };
 
   const handleShare = async () => {
     if (navigator.share) {
@@ -400,7 +435,6 @@ const PostCard: React.FC<{ post: Post; onReact: (id: string, type: 'likes' | 'he
           url: shareUrl
         });
       } catch (err) {
-        // Fallback to menu if cancelled or failed
         setShowShareMenu(!showShareMenu);
       }
     } else {
@@ -432,6 +466,29 @@ const PostCard: React.FC<{ post: Post; onReact: (id: string, type: 'likes' | 'he
         if(onRefresh) onRefresh();
     } catch(e:any) {
         alert("Update failed: " + e.message);
+    }
+  };
+
+  const handleSendComment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newComment.trim() || !currentUser) return;
+    try {
+      await mockDB.addComment(post.id, currentUser.id, newComment);
+      setNewComment('');
+      loadComments(); // Refresh comments
+    } catch (e: any) {
+      alert("Failed to comment: " + e.message);
+    }
+  };
+
+  const handleDeleteComment = async (commentId: string) => {
+    if (confirm("Delete this comment?")) {
+      try {
+        await mockDB.deleteComment(commentId);
+        loadComments();
+      } catch (e: any) {
+        alert("Failed to delete comment: " + e.message);
+      }
     }
   };
 
@@ -506,6 +563,10 @@ const PostCard: React.FC<{ post: Post; onReact: (id: string, type: 'likes' | 'he
                 <FaceSmileIcon />
                 <span className="text-xs font-semibold group-hover:text-yellow-400">{post.hahas}</span>
               </button>
+              <button onClick={() => setShowComments(!showComments)} className="flex items-center gap-1.5 text-slate-400 hover:text-indigo-400 transition group">
+                <ChatBubbleIcon />
+                <span className="text-xs font-semibold group-hover:text-indigo-400">Comment</span>
+              </button>
             </div>
             <div className="flex items-center gap-4 relative">
                <span className="text-xs font-mono text-slate-500">{post.views.toLocaleString()} views</span>
@@ -522,6 +583,54 @@ const PostCard: React.FC<{ post: Post; onReact: (id: string, type: 'likes' | 'he
                )}
             </div>
           </div>
+          
+          {showComments && (
+            <div className="mt-4 pt-4 border-t border-slate-700/30 animate-fade-in">
+              <div className="space-y-4 mb-4">
+                {loadingComments ? (
+                  <div className="text-center text-xs text-slate-500 py-2">Loading comments...</div>
+                ) : comments.length === 0 ? (
+                  <div className="text-center text-xs text-slate-500 py-2">No comments yet.</div>
+                ) : (
+                  comments.map(comment => (
+                    <div key={comment.id} className="flex gap-3 text-sm">
+                      <img src={comment.userAvatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${comment.userEmail}`} className="w-8 h-8 rounded-full bg-slate-700 object-cover" alt="" />
+                      <div className="flex-1 bg-slate-900/40 rounded-xl p-3 border border-slate-700/30">
+                        <div className="flex justify-between items-start mb-1">
+                          <span className="font-bold text-slate-300 text-xs">{comment.userEmail.split('@')[0]}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-slate-600">{new Date(comment.createdAt).toLocaleDateString()}</span>
+                            {currentUser?.id === comment.userId && (
+                              <button onClick={() => handleDeleteComment(comment.id)} className="text-slate-600 hover:text-red-400">
+                                <TrashIcon />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <p className="text-slate-300 text-sm leading-relaxed">{comment.content}</p>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+              
+              <form onSubmit={handleSendComment} className="flex gap-2">
+                <input 
+                  type="text" 
+                  value={newComment}
+                  onChange={(e) => setNewComment(e.target.value)}
+                  placeholder="Write a comment..."
+                  className="flex-1 bg-slate-900/50 border border-slate-700 rounded-full px-4 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500 transition"
+                />
+                <button type="submit" disabled={!newComment.trim()} className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-full p-2 w-10 h-10 flex items-center justify-center transition">
+                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5 translate-x-0.5 -translate-y-0.5">
+                      <path d="M3.105 2.289a.75.75 0 0 0-.826.95l1.414 4.925A2.66 2.66 0 0 0 5.255 10c.08.551.36 1.05.795 1.412l-1.414 4.925a.75.75 0 0 0 .826.95 28.89 28.89 0 0 0 15.293-7.154.75.75 0 0 0 0-1.115A28.897 28.897 0 0 0 3.105 2.289Z" />
+                   </svg>
+                </button>
+              </form>
+            </div>
+          )}
+
         </div>
       </div>
     </div>

@@ -36,6 +36,16 @@ export interface Post {
   createdAt: string;
 }
 
+export interface Comment {
+  id: string;
+  postId: string;
+  userId: string;
+  userEmail: string;
+  userAvatar?: string;
+  content: string;
+  createdAt: string;
+}
+
 export interface Transaction {
   id: string;
   userId: string;

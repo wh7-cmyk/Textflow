@@ -1,5 +1,5 @@
 
-import { User, Post, Transaction, UserRole, SystemSettings, NetworkType } from '../types';
+import { User, Post, Transaction, UserRole, SystemSettings, NetworkType, Comment } from '../types';
 import { supabase } from './supabaseClient';
 
 // We implement the same interface as the old MockDB for compatibility
@@ -335,6 +335,62 @@ class DBService {
         views: currentViews + boost 
     }).eq('id', postId);
   }
+
+  // --- Comments ---
+
+  async getPostComments(postId: string): Promise<Comment[]> {
+    const { data, error } = await supabase
+      .from('comments')
+      .select('*, profiles(email, avatar_url)')
+      .eq('post_id', postId)
+      .order('created_at', { ascending: true });
+
+    if (error) return [];
+
+    return data.map((c: any) => ({
+      id: c.id,
+      postId: c.post_id,
+      userId: c.user_id,
+      userEmail: c.profiles?.email || 'Unknown',
+      userAvatar: c.profiles?.avatar_url,
+      content: c.content,
+      createdAt: c.created_at
+    }));
+  }
+
+  async addComment(postId: string, userId: string, content: string): Promise<Comment> {
+    const { data, error } = await supabase
+      .from('comments')
+      .insert([{
+        post_id: postId,
+        user_id: userId,
+        content: content
+      }])
+      .select('*, profiles(email, avatar_url)')
+      .single();
+
+    if (error) throw new Error(error.message);
+
+    return {
+      id: data.id,
+      postId: data.post_id,
+      userId: data.user_id,
+      userEmail: data.profiles?.email || 'Unknown',
+      userAvatar: data.profiles?.avatar_url,
+      content: data.content,
+      createdAt: data.created_at
+    };
+  }
+
+  async deleteComment(commentId: string): Promise<void> {
+    const { error } = await supabase
+      .from('comments')
+      .delete()
+      .eq('id', commentId);
+
+    if (error) throw new Error(error.message);
+  }
+
 
   // --- Wallet ---
 
