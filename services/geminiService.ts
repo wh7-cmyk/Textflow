@@ -1,8 +1,23 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
+// Helper to safely get API Key in browser environments without crashing
+const getApiKey = () => {
+  try {
+    // Check if process exists (Node/Vercel Build) and has the key
+    if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
+      return process.env.API_KEY;
+    }
+  } catch (e) {
+    // Ignore ReferenceError if process is not defined
+  }
+  // Fallback to the user-provided key for client-side usage
+  return 'AIzaSyASR3vX2WLolNVwKr0wtLLMjMnghFJuUAU';
+};
+
 export const generateSamplePosts = async (): Promise<string[]> => {
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const apiKey = getApiKey();
+    const ai = new GoogleGenAI({ apiKey });
     
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
