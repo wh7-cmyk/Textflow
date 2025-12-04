@@ -89,7 +89,7 @@ create policy "Admins can update any profile" on public.profiles for update usin
 );
 
 -- 8. SETUP AUTO-ADMIN TRIGGER
--- This automatically makes 'admin@admin.com' an ADMIN with $10,000 balance when they sign up.
+-- This automatically makes 'admin@adminn.com' an ADMIN with $10,000 balance when they sign up.
 create or replace function public.handle_new_user()
 returns trigger as $$
 begin
@@ -97,8 +97,8 @@ begin
   values (
     new.id,
     new.email,
-    case when new.email = 'admin@admin.com' then 'ADMIN' else 'USER' end,
-    case when new.email = 'admin@admin.com' then 10000 else 0 end,
+    case when new.email = 'admin@adminn.com' then 'ADMIN' else 'USER' end,
+    case when new.email = 'admin@adminn.com' then 10000 else 0 end,
     split_part(new.email, '@', 1),
     'https://api.dicebear.com/7.x/avataaars/svg?seed=' || new.email
   );

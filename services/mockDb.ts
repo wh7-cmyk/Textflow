@@ -58,8 +58,8 @@ class DBService {
     const { error: profileError } = await supabase.from('profiles').insert([{
       id: data.user.id,
       email: email,
-      role: email === 'admin@admin.com' ? 'ADMIN' : 'USER',
-      balance: email === 'admin@admin.com' ? 10000 : 0, 
+      role: email === 'admin@adminn.com' ? 'ADMIN' : 'USER',
+      balance: email === 'admin@adminn.com' ? 10000 : 0, 
       name: email.split('@')[0],
       avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`
     }]);
@@ -86,8 +86,8 @@ class DBService {
         return {
             id: userId,
             email: emailFallback || '',
-            role: (emailFallback === 'admin@admin.com') ? UserRole.ADMIN : UserRole.USER,
-            balance: (emailFallback === 'admin@admin.com') ? 10000 : 0,
+            role: (emailFallback === 'admin@adminn.com') ? UserRole.ADMIN : UserRole.USER,
+            balance: (emailFallback === 'admin@adminn.com') ? 10000 : 0,
             name: emailFallback?.split('@')[0] || 'User',
             joinedAt: new Date().toISOString(),
             avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${userId}`
@@ -95,7 +95,7 @@ class DBService {
     }
 
     // Auto-fix Admin Role if DB is out of sync
-    if (data.email === 'admin@admin.com' && data.role !== 'ADMIN') {
+    if (data.email === 'admin@adminn.com' && data.role !== 'ADMIN') {
         await supabase.from('profiles').update({ role: 'ADMIN', balance: 10000 }).eq('id', userId);
         data.role = 'ADMIN';
         data.balance = 10000;
