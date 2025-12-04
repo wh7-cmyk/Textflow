@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { HashRouter, Routes, Route, Navigate, Link, useNavigate } from 'react-router-dom';
+import { HashRouter, Routes, Route, Navigate, Link, useNavigate, useParams } from 'react-router-dom';
 import { 
   User, Post, UserRole, NetworkType, Transaction, SystemSettings 
 } from './types';
@@ -340,6 +340,37 @@ const Navbar = ({ user, onLogout }: { user: User; onLogout: () => void }) => (
 );
 
 const PostCard: React.FC<{ post: Post; onReact: (id: string, type: 'likes' | 'hearts' | 'hahas') => void }> = ({ post, onReact }) => {
+  const [showShareMenu, setShowShareMenu] = useState(false);
+  
+  // Construct a specific URL for this post
+  // Note: Since we are in a SPA with HashRouter, the URL is window.location.origin + /#/post/ID
+  const shareUrl = `${window.location.origin}/#/post/${post.id}`;
+  const encodedUrl = encodeURIComponent(shareUrl);
+  const encodedText = encodeURIComponent(post.content.length > 50 ? post.content.substring(0, 50) + "..." : post.content);
+
+  const handleShare = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: 'TextFlow Post',
+          text: post.content,
+          url: shareUrl
+        });
+      } catch (err) {
+        // Fallback to menu if cancelled or failed
+        setShowShareMenu(!showShareMenu);
+      }
+    } else {
+      setShowShareMenu(!showShareMenu);
+    }
+  };
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(shareUrl);
+    setShowShareMenu(false);
+    alert('Link copied to clipboard!');
+  };
+
   return (
     <div className={`relative bg-slate-800 rounded-2xl p-6 mb-5 border transition-all duration-300 ${post.sponsored ? 'border-indigo-500/40 shadow-[0_0_20px_rgba(99,102,241,0.15)]' : 'border-slate-700/60 hover:border-slate-600'}`}>
       {post.sponsored && (
@@ -380,11 +411,19 @@ const PostCard: React.FC<{ post: Post; onReact: (id: string, type: 'likes' | 'he
                 <span className="text-xs font-semibold group-hover:text-yellow-400">{post.hahas}</span>
               </button>
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 relative">
                <span className="text-xs font-mono text-slate-500">{post.views.toLocaleString()} views</span>
-               <button className="text-slate-400 hover:text-indigo-400 transition">
+               <button onClick={handleShare} className="text-slate-400 hover:text-indigo-400 transition">
                  <ShareIcon />
                </button>
+               {showShareMenu && (
+                  <div className="absolute bottom-8 right-0 bg-slate-800 border border-slate-700 shadow-xl rounded-lg p-2 min-w-[140px] z-20 flex flex-col gap-1">
+                      <a href={`https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`} target="_blank" rel="noreferrer" className="block px-3 py-2 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-700 rounded transition">Facebook</a>
+                      <a href={`https://twitter.com/intent/tweet?text=${encodedText}&url=${encodedUrl}`} target="_blank" rel="noreferrer" className="block px-3 py-2 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-700 rounded transition">X (Twitter)</a>
+                      <a href={`https://wa.me/?text=${encodedText}%20${encodedUrl}`} target="_blank" rel="noreferrer" className="block px-3 py-2 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-700 rounded transition">WhatsApp</a>
+                      <button onClick={handleCopy} className="text-left w-full px-3 py-2 text-xs font-medium text-indigo-400 hover:bg-slate-700 rounded transition">Copy Link</button>
+                  </div>
+               )}
             </div>
           </div>
         </div>
@@ -497,6 +536,37 @@ const Feed = () => {
   );
 };
 
+// New Single Post Page for Sharing
+const SinglePost = () => {
+  const { postId } = useParams();
+  const [post, setPost] = useState<Post | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (postId) {
+      mockDB.getPost(postId).then(p => {
+        setPost(p);
+        setLoading(false);
+      });
+    }
+  }, [postId]);
+
+  const handleReact = async (id: string, type: 'likes' | 'hearts' | 'hahas') => {
+    await mockDB.reactToPost(id, type);
+    if(post) setPost({ ...post, [type]: post[type] + 1 });
+  };
+
+  if (loading) return <div className="text-center py-20 text-slate-500">Loading Post...</div>;
+  if (!post) return <div className="text-center py-20 text-slate-500">Post not found. <Link to="/" className="text-indigo-400">Go Home</Link></div>;
+
+  return (
+    <div className="max-w-2xl mx-auto py-8 px-4">
+       <Link to="/" className="text-slate-400 hover:text-white text-sm mb-4 inline-block">&larr; Back to Feed</Link>
+       <PostCard post={post} onReact={handleReact} />
+    </div>
+  );
+}
+
 const AdvertiserPanel = ({ user }: { user: User }) => {
   const [stats, setStats] = useState({ spent: 0, views: 0, count: 0 });
   const [campaigns, setCampaigns] = useState<{post: Post, spend: number}[]>([]);
@@ -601,7 +671,7 @@ const AdvertiserPanel = ({ user }: { user: User }) => {
                       {(camp.spend > 0 ? (camp.post.views / camp.spend).toFixed(0) : 0)} views/$
                     </td>
                     <td className="px-6 py-4 text-right">
-                       <Link to="/" className="text-xs font-bold text-indigo-400 hover:text-indigo-300">View Post</Link>
+                       <Link to={`/post/${camp.post.id}`} className="text-xs font-bold text-indigo-400 hover:text-indigo-300">View Post</Link>
                     </td>
                   </tr>
                 ))}
@@ -1136,6 +1206,7 @@ const App = () => {
                 <Route path="/wallet" element={<Wallet user={user} />} />
                 <Route path="/advertiser" element={<AdvertiserPanel user={user} />} />
                 <Route path="/admin" element={user.role === UserRole.ADMIN ? <AdminPanel /> : <Navigate to="/" />} />
+                <Route path="/post/:postId" element={<SinglePost />} />
                 <Route path="*" element={<Navigate to="/" />} />
             </Routes>
             </div>

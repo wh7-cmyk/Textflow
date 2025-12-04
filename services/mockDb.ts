@@ -223,6 +223,31 @@ class DBService {
     }));
   }
 
+  async getPost(postId: string): Promise<Post | null> {
+    const { data, error } = await supabase
+      .from('posts')
+      .select('*, profiles(email, avatar_url)')
+      .eq('id', postId)
+      .single();
+
+    if (error || !data) return null;
+
+    return {
+      id: data.id,
+      userId: data.user_id,
+      userEmail: data.profiles?.email || 'Unknown',
+      userAvatar: data.profiles?.avatar_url,
+      content: data.content,
+      type: data.type,
+      views: data.views,
+      sponsored: data.sponsored,
+      likes: data.likes,
+      hearts: data.hearts,
+      hahas: data.hahas,
+      createdAt: data.created_at
+    };
+  }
+
   async getUserPosts(userId: string): Promise<Post[]> {
     const { data, error } = await supabase
       .from('posts')
