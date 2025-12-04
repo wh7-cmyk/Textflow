@@ -345,7 +345,13 @@ class DBService {
       .eq('post_id', postId)
       .order('created_at', { ascending: true });
 
-    if (error) return [];
+    if (error) {
+        // Handle common schema errors gracefully
+        if (error.code === '42P01' || error.message.includes('schema cache')) {
+            throw new Error("Table 'comments' does not exist. Please run the SQL setup script.");
+        }
+        return [];
+    }
 
     return data.map((c: any) => ({
       id: c.id,
@@ -369,7 +375,12 @@ class DBService {
       .select('*, profiles(email, avatar_url)')
       .single();
 
-    if (error) throw new Error(error.message);
+    if (error) {
+        if (error.code === '42P01' || error.message.includes('schema cache')) {
+            throw new Error("Missing 'comments' table. Please run the Database Setup SQL in Admin Panel.");
+        }
+        throw new Error(error.message);
+    }
 
     return {
       id: data.id,

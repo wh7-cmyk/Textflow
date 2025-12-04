@@ -125,6 +125,10 @@ $$ language plpgsql security definer;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
+
+-- 10. REFRESH SCHEMA CACHE
+-- This fixes the "Could not find table in schema cache" error
+NOTIFY pgrst, 'reload config';
   `;
 
   return (
@@ -421,9 +425,16 @@ const PostCard: React.FC<{ post: Post; onReact: (id: string, type: 'likes' | 'he
 
   const loadComments = async () => {
     setLoadingComments(true);
-    const data = await mockDB.getPostComments(post.id);
-    setComments(data);
-    setLoadingComments(false);
+    try {
+      const data = await mockDB.getPostComments(post.id);
+      setComments(data);
+    } catch (e: any) {
+      if (e.message.includes("does not exist") || e.message.includes("schema cache")) {
+         alert("Database Error: The comments table is missing.\n\nPlease go to Admin Panel > System > View Database Setup SQL and RUN THE SQL code in your Supabase dashboard.");
+      }
+    } finally {
+      setLoadingComments(false);
+    }
   };
 
   const handleShare = async () => {
