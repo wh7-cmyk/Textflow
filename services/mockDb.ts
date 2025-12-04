@@ -4,7 +4,8 @@ import { supabase } from './supabaseClient';
 // We implement the same interface as the old MockDB for compatibility
 class DBService {
   private settings: SystemSettings = {
-    adCostPer100kViews: 0.1,
+    adCostPer100kViews: 0.1, // Creator earns $0.1 per 100k views
+    sponsorAdPricePer1kViews: 1.0, // Advertiser pays $1.0 per 1k views
     minWithdraw: 50,
     adminWalletAddress: '0xAdminWalletAddress123456789',
   };
@@ -16,7 +17,10 @@ class DBService {
   private async loadSettings() {
     // In a real app, settings would be in a DB table. For now we use local default or localStorage
     const saved = localStorage.getItem('tf_settings');
-    if (saved) this.settings = JSON.parse(saved);
+    if (saved) {
+        // Merge saved settings with defaults to ensure new keys exist
+        this.settings = { ...this.settings, ...JSON.parse(saved) };
+    }
   }
 
   // --- Auth ---
@@ -270,8 +274,10 @@ class DBService {
 
     await supabase.from('profiles').update({ balance: profile.balance - amount }).eq('id', user.id);
 
-    const estimatedViews = Math.floor((amount / this.settings.adCostPer100kViews) * 100000);
-    const boost = Math.floor(estimatedViews * 0.1);
+    // Calculate views based on the Sponsor Ad Price setting
+    // Formula: (Amount / CostPer1k) * 1000
+    const estimatedViews = Math.floor((amount / this.settings.sponsorAdPricePer1kViews) * 1000);
+    const boost = estimatedViews;
     
     const { data: postData } = await supabase.from('posts').select('views').eq('id', postId).single();
     const currentViews = postData?.views || 0;

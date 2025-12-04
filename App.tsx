@@ -198,15 +198,17 @@ const ChartBarIcon = () => (
 // --- Modals ---
 
 const SponsorModal = ({ post, onClose, onConfirm, userBalance }: { post: Post, onClose: () => void, onConfirm: (amount: number) => void, userBalance: number }) => {
-  const [amount, setAmount] = useState<string>('0.1');
-  const [rate, setRate] = useState(0.1);
+  const [amount, setAmount] = useState<string>('1.0');
+  const [sponsorRate, setSponsorRate] = useState(1.0); // Cost per 1k views
 
   useEffect(() => {
-    mockDB.getSettings().then(s => setRate(s.adCostPer100kViews));
+    mockDB.getSettings().then(s => setSponsorRate(s.sponsorAdPricePer1kViews || 1.0));
   }, []);
 
   const numAmount = parseFloat(amount) || 0;
-  const estimatedViews = Math.floor((numAmount / rate) * 100000);
+  // Formula: Amount / Rate * 1000
+  // If Rate is $1 per 1k, then $1 = 1000 views
+  const estimatedViews = Math.floor((numAmount / sponsorRate) * 1000);
   const isValid = numAmount > 0 && numAmount <= userBalance;
 
   return (
@@ -232,7 +234,7 @@ const SponsorModal = ({ post, onClose, onConfirm, userBalance }: { post: Post, o
         <div className="mb-6 p-3 bg-indigo-500/10 border border-indigo-500/30 rounded-lg">
           <p className="text-xs text-indigo-300 uppercase font-semibold">Estimated Reach</p>
           <p className="text-2xl font-bold text-indigo-400">~{estimatedViews.toLocaleString()} <span className="text-sm font-normal text-indigo-300">views</span></p>
-          <p className="text-[10px] text-slate-500 mt-1">Based on rate: ${rate} per 100k views</p>
+          <p className="text-[10px] text-slate-500 mt-1">Rate: ${sponsorRate} per 1,000 views</p>
         </div>
 
         <div className="flex gap-3">
@@ -964,15 +966,26 @@ const AdminPanel = () => {
           <div className="bg-slate-800 p-8 rounded-2xl border border-slate-700 shadow-xl max-w-2xl">
              <div className="space-y-6">
                 <div>
-                    <label className="block text-sm font-semibold text-slate-300 mb-2">Ad Cost (USD) per 100k Views</label>
+                    <label className="block text-sm font-semibold text-slate-300 mb-2">Creator Earning Rate (USD per 100k views)</label>
                     <input 
                         type="number" 
                         defaultValue={settings.adCostPer100kViews}
                         onChange={(e) => mockDB.updateSettings({ adCostPer100kViews: parseFloat(e.target.value) })}
                         className="w-full bg-slate-900 border border-slate-600 p-3 rounded-xl text-white focus:border-indigo-500 outline-none" 
                     />
-                    <p className="text-xs text-slate-500 mt-1">Controls the rate at which user balance is consumed for sponsorship.</p>
+                    <p className="text-xs text-slate-500 mt-1">Amount credited to creators per 100,000 views (if applicable).</p>
                 </div>
+                <div>
+                    <label className="block text-sm font-semibold text-slate-300 mb-2">Advertiser Cost (USD per 1k views)</label>
+                    <input 
+                        type="number" 
+                        defaultValue={settings.sponsorAdPricePer1kViews || 1.0}
+                        onChange={(e) => mockDB.updateSettings({ sponsorAdPricePer1kViews: parseFloat(e.target.value) })}
+                        className="w-full bg-slate-900 border border-slate-600 p-3 rounded-xl text-white focus:border-indigo-500 outline-none" 
+                    />
+                    <p className="text-xs text-slate-500 mt-1">Price advertisers pay to boost their posts by 1,000 views.</p>
+                </div>
+                <div className="h-px bg-slate-700 my-4"></div>
                 <div>
                     <label className="block text-sm font-semibold text-slate-300 mb-2">Minimum Withdrawal (USD)</label>
                     <input 
