@@ -1451,10 +1451,6 @@ const Auth = ({ onLogin, onShowSetup, siteName }: { onLogin: (u: User) => void, 
             {isLogin ? "New here? Create an account" : "Already a member? Sign In"}
           </button>
         </div>
-
-        <button onClick={onShowSetup} className="block mx-auto mt-6 text-[10px] text-slate-500 hover:text-white underline">
-            Database Setup (SQL)
-        </button>
       </div>
     </div>
   );
