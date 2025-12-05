@@ -1099,8 +1099,20 @@ const PostCard = ({ post, onReact, currentUser, onRefresh, onSponsor }: { post: 
     const [showComments, setShowComments] = useState(false);
     const [comments, setComments] = useState<Comment[]>([]);
     const [newComment, setNewComment] = useState('');
-    // Local state for optimistic view count updates
+    
+    // Local state for optimistic view count and reactions
     const [localViews, setLocalViews] = useState(post.views);
+    const [localReactions, setLocalReactions] = useState({
+        likes: post.likes,
+        hearts: post.hearts,
+        hahas: post.hahas
+    });
+
+    // Reset local state when prop updates (e.g. after refresh)
+    useEffect(() => {
+        setLocalReactions({ likes: post.likes, hearts: post.hearts, hahas: post.hahas });
+        setLocalViews(post.views);
+    }, [post]);
 
     // Extract first URL for preview
     const urlMatch = post.content.match(/(https?:\/\/[^\s]+)/);
@@ -1144,8 +1156,17 @@ const PostCard = ({ post, onReact, currentUser, onRefresh, onSponsor }: { post: 
     }, [showComments, post.id, isOwner]);
 
     const handleReact = async (type: 'likes' | 'hearts' | 'hahas') => {
-        await mockDB.reactToPost(post.id, type, currentUser.id);
-        if (onRefresh) onRefresh();
+        // Optimistic Update: Update UI immediately
+        setLocalReactions(prev => ({...prev, [type]: prev[type] + 1}));
+        
+        try {
+            await mockDB.reactToPost(post.id, type, currentUser.id);
+            if (onRefresh) onRefresh();
+        } catch (e) {
+            // Revert if failed
+            setLocalReactions(prev => ({...prev, [type]: prev[type] - 1}));
+            alert("Reaction failed. Please ensure you ran the latest Database SQL.");
+        }
     };
 
     const handleUpdate = async () => {
@@ -1295,13 +1316,13 @@ const PostCard = ({ post, onReact, currentUser, onRefresh, onSponsor }: { post: 
             <div className="flex items-center justify-between pt-4 border-t border-slate-700/50">
                 <div className="flex gap-4">
                     <button onClick={() => handleReact('likes')} className="flex items-center gap-1.5 text-slate-400 hover:text-indigo-400 transition group">
-                        <ThumbUpIcon /> <span className="text-xs font-bold">{post.likes}</span>
+                        <ThumbUpIcon /> <span className="text-xs font-bold">{localReactions.likes}</span>
                     </button>
                     <button onClick={() => handleReact('hearts')} className="flex items-center gap-1.5 text-slate-400 hover:text-red-400 transition group">
-                        <HeartIcon /> <span className="text-xs font-bold">{post.hearts}</span>
+                        <HeartIcon /> <span className="text-xs font-bold">{localReactions.hearts}</span>
                     </button>
                     <button onClick={() => handleReact('hahas')} className="flex items-center gap-1.5 text-slate-400 hover:text-yellow-400 transition group">
-                        <FaceSmileIcon /> <span className="text-xs font-bold">{post.hahas}</span>
+                        <FaceSmileIcon /> <span className="text-xs font-bold">{localReactions.hahas}</span>
                     </button>
                 </div>
                 <div className="flex gap-4 text-xs text-slate-500 font-medium">
