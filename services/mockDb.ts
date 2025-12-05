@@ -181,6 +181,40 @@ class DBService {
     }));
   }
 
+  // --- Follows ---
+  async followUser(targetId: string, currentUserId: string): Promise<void> {
+    const { error } = await supabase.from('follows').insert([{ follower_id: currentUserId, following_id: targetId }]);
+    if (error) throw new Error(error.message);
+
+    // Notification
+    await this.createNotification(targetId, currentUserId, 'FOLLOW', 'started following you', `/profile/${currentUserId}`);
+  }
+
+  async unfollowUser(targetId: string, currentUserId: string): Promise<void> {
+    const { error } = await supabase.from('follows').delete().match({ follower_id: currentUserId, following_id: targetId });
+    if (error) throw new Error(error.message);
+  }
+
+  async getFollowStatus(targetId: string, currentUserId: string): Promise<boolean> {
+    const { count } = await supabase
+        .from('follows')
+        .select('*', { count: 'exact', head: true })
+        .match({ follower_id: currentUserId, following_id: targetId });
+    return (count || 0) > 0;
+  }
+
+  async getMyFollowerCount(userId: string): Promise<number> {
+    // Only works for own profile due to RLS
+    const { count, error } = await supabase
+        .from('follows')
+        .select('*', { count: 'exact', head: true })
+        .eq('following_id', userId);
+    
+    if (error) return 0;
+    return count || 0;
+  }
+
+
   // --- Posts ---
 
   async createPost(userId: string, content: string, type: 'text' | 'link'): Promise<Post> {

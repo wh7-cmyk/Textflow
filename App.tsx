@@ -23,6 +23,7 @@ create table if not exists public.profiles (
   balance numeric default 0,
   name text,
   avatar_url text,
+  email_public boolean default true,
   created_at timestamp with time zone default timezone('utc'::text, now())
 );
 
@@ -65,6 +66,14 @@ create table if not exists public.messages (
   content text,
   is_read boolean default false,
   created_at timestamp with time zone default timezone('utc'::text, now())
+);
+
+create table if not exists public.follows (
+  id uuid default uuid_generate_v4() primary key,
+  follower_id uuid references public.profiles(id),
+  following_id uuid references public.profiles(id),
+  created_at timestamp with time zone default timezone('utc'::text, now()),
+  unique(follower_id, following_id)
 );
 
 create table if not exists public.transactions (
@@ -124,6 +133,16 @@ drop policy if exists "Users send messages" on public.messages;
 create policy "Users send messages" on public.messages for insert with check (auth.uid() = sender_id);
 drop policy if exists "Users update messages (read status)" on public.messages;
 create policy "Users update messages (read status)" on public.messages for update using (auth.uid() = receiver_id);
+
+alter table public.follows enable row level security;
+drop policy if exists "Users can see who they follow" on public.follows;
+create policy "Users can see who they follow" on public.follows for select using (auth.uid() = follower_id);
+drop policy if exists "Users can see their followers" on public.follows;
+create policy "Users can see their followers" on public.follows for select using (auth.uid() = following_id);
+drop policy if exists "Users can follow" on public.follows;
+create policy "Users can follow" on public.follows for insert with check (auth.uid() = follower_id);
+drop policy if exists "Users can unfollow" on public.follows;
+create policy "Users can unfollow" on public.follows for delete using (auth.uid() = follower_id);
 
 alter table public.transactions enable row level security;
 drop policy if exists "Users view own txs" on public.transactions;
@@ -267,8 +286,7 @@ const HomeIcon = () => (
 );
 const PresentationChartLineIcon = () => (
     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 0 0 6 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0 1 18 16.5h-2.25m-7.5 0h7.5m-7.5 0-1 3m8.5-3 1 3m0 0 .5 1.5m-.5-1.5h-9.5m0 0-.5 1.5M9 11.25v1.5M12 9v3.75m3-6v6" />
-    </svg>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 0 0 6 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0 1 18 16.5h-2.25m-7.5 0h7.5m-7.5 0-1 3m8.5-3 1 3m0 0 .5 1.5m-.5-1.5h-9.5m0 0-.5 1.5M9 11.25v1.5M12 9v3.75m3-6v6" /></svg>
 );
 
 const HeartIcon = ({ filled }: { filled?: boolean }) => (<svg xmlns="http://www.w3.org/2000/svg" fill={filled ? "currentColor" : "none"} viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={`w-5 h-5 ${filled ? 'text-red-500' : ''}`}><path strokeLinecap="round" strokeLinejoin="round" d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12Z" /></svg>);
@@ -281,7 +299,8 @@ const PencilIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" fill="none" vi
 const TrashIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>);
 const CheckIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>);
 const PaperAirplaneIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 -rotate-45 translate-x-1"><path strokeLinecap="round" strokeLinejoin="round" d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5" /></svg>);
-
+const UserPlusIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0ZM3.75 15a2.25 2.25 0 0 1 2.25-2.25h2.996a2.25 2.25 0 0 1 2.25 2.25 1.5 1.5 0 0 1 1.5 1.5v3.326a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V16.5a1.5 1.5 0 0 1 1.5-1.5Z" /></svg>);
+const UserMinusIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M22 10.5h-6m-2.25-4.125a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0ZM3.75 15a2.25 2.25 0 0 1 2.25-2.25h2.996a2.25 2.25 0 0 1 2.25 2.25 1.5 1.5 0 0 1 1.5 1.5v3.326a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V16.5a1.5 1.5 0 0 1 1.5-1.5Z" /></svg>);
 
 // --- Navbar & Mobile Menu ---
 
@@ -434,14 +453,13 @@ const Navbar = ({ user, onLogout, siteName }: { user: User; onLogout: () => void
                   <img src={user.avatarUrl} className="w-10 h-10 rounded-full" alt=""/>
                   <div>
                       <p className="text-white font-bold">{user.name}</p>
-                      {/* Email is intentionally hidden in mobile menu too to match profile */}
+                      <p className="text-xs text-slate-400">{user.email}</p>
                   </div>
               </Link>
               {dmEnabled && (
                   <Link to="/messages" onClick={() => setMobileMenuOpen(false)} className="block text-slate-300 hover:text-white py-2 border-b border-slate-800">Messages</Link>
               )}
               <Link to="/advertiser" onClick={() => setMobileMenuOpen(false)} className="block text-slate-300 hover:text-white py-2 border-b border-slate-800">Advertiser Dashboard</Link>
-              <Link to="/stats" onClick={() => setMobileMenuOpen(false)} className="block text-slate-300 hover:text-white py-2 border-b border-slate-800">Statistics</Link>
               <Link to="/about" onClick={() => setMobileMenuOpen(false)} className="block text-slate-300 hover:text-white py-2 border-b border-slate-800">About</Link>
               <Link to="/policy" onClick={() => setMobileMenuOpen(false)} className="block text-slate-300 hover:text-white py-2 border-b border-slate-800">Policy</Link>
               {user.role === UserRole.ADMIN && (
@@ -454,80 +472,6 @@ const Navbar = ({ user, onLogout, siteName }: { user: User; onLogout: () => void
   );
 };
 
-// --- User Stats Component ---
-const UserStats = ({ user }: { user: User }) => {
-    const [posts, setPosts] = useState<Post[]>([]);
-    const [settings, setSettings] = useState<SystemSettings | null>(null);
-
-    useEffect(() => {
-        const load = async () => {
-            const p = await mockDB.getUserPosts(user.id);
-            const s = await mockDB.getSettings();
-            setPosts(p);
-            setSettings(s);
-        };
-        load();
-    }, [user.id]);
-
-    if (!settings) return <div className="p-10 text-center">Loading stats...</div>;
-
-    const totalViews = posts.reduce((sum, p) => sum + p.views, 0);
-    // Calculation: (Total Views / 100,000) * PayRate
-    const estimatedEarnings = (totalViews / 100000) * settings.adCostPer100kViews;
-
-    return (
-        <div className="max-w-4xl mx-auto py-8 px-4">
-            <h1 className="text-3xl font-black text-white mb-6">Performance Dashboard</h1>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl">
-                    <h3 className="text-slate-400 font-bold text-sm uppercase mb-2">Total Views</h3>
-                    <div className="text-4xl font-black text-white">{totalViews.toLocaleString()}</div>
-                </div>
-                <div className="bg-slate-800 p-6 rounded-2xl border border-indigo-500/30 shadow-xl relative overflow-hidden">
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 rounded-full blur-3xl -mr-10 -mt-10"></div>
-                    <h3 className="text-indigo-300 font-bold text-sm uppercase mb-2">Est. Earnings</h3>
-                    <div className="text-4xl font-black text-green-400">${estimatedEarnings.toFixed(4)}</div>
-                    <p className="text-xs text-slate-500 mt-2">Based on ${settings.adCostPer100kViews} per 100k views</p>
-                </div>
-            </div>
-
-            <h2 className="text-xl font-bold text-white mb-4">Post Performance</h2>
-            <div className="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden">
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm text-slate-400">
-                        <thead className="bg-slate-900 text-xs uppercase font-bold text-slate-500">
-                            <tr>
-                                <th className="px-6 py-4">Post</th>
-                                <th className="px-6 py-4">Date</th>
-                                <th className="px-6 py-4">Views</th>
-                                <th className="px-6 py-4">Earnings</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-700">
-                            {posts.length === 0 ? (
-                                <tr><td colSpan={4} className="px-6 py-8 text-center text-slate-500">No posts yet.</td></tr>
-                            ) : (
-                                posts.map(p => {
-                                    const postEarnings = (p.views / 100000) * settings.adCostPer100kViews;
-                                    return (
-                                        <tr key={p.id} className="hover:bg-slate-700/30">
-                                            <td className="px-6 py-4 max-w-xs truncate text-white">{p.content}</td>
-                                            <td className="px-6 py-4">{new Date(p.createdAt).toLocaleDateString()}</td>
-                                            <td className="px-6 py-4 font-mono">{p.views.toLocaleString()}</td>
-                                            <td className="px-6 py-4 font-mono text-green-400">${postEarnings.toFixed(5)}</td>
-                                        </tr>
-                                    );
-                                })
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    );
-};
-
 // --- Messaging Page ---
 const MessagesPage = ({ user }: { user: User }) => {
     const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -536,7 +480,6 @@ const MessagesPage = ({ user }: { user: User }) => {
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(true);
     const scrollRef = useRef<HTMLDivElement>(null);
-    const params = useParams(); // To possibly support /messages/:userId
 
     useEffect(() => {
         loadConversations();
@@ -664,7 +607,42 @@ const MessagesPage = ({ user }: { user: User }) => {
     );
 };
 
-// --- Page Components ---
+const UserStats = ({ user }: { user: User }) => {
+    return (
+        <div className="max-w-2xl mx-auto py-8 px-4">
+            <h1 className="text-2xl font-bold text-white mb-6">Your Statistics</h1>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                 <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700">
+                    <div className="flex items-center gap-3 mb-2">
+                         <div className="p-2 bg-green-500/10 rounded-lg text-green-400">
+                            <ChartBarIcon />
+                         </div>
+                        <span className="text-slate-400 text-xs font-bold uppercase">Balance</span>
+                    </div>
+                    <div className="text-3xl font-black text-white">${user.balance.toFixed(2)}</div>
+                 </div>
+                 <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700">
+                    <div className="flex items-center gap-3 mb-2">
+                         <div className="p-2 bg-indigo-500/10 rounded-lg text-indigo-400">
+                            <CheckIcon />
+                         </div>
+                        <span className="text-slate-400 text-xs font-bold uppercase">Joined</span>
+                    </div>
+                    <div className="text-lg font-bold text-white">{new Date(user.joinedAt).toLocaleDateString()}</div>
+                 </div>
+                 <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700">
+                    <div className="flex items-center gap-3 mb-2">
+                         <div className="p-2 bg-purple-500/10 rounded-lg text-purple-400">
+                            <UserPlusIcon />
+                         </div>
+                        <span className="text-slate-400 text-xs font-bold uppercase">Role</span>
+                    </div>
+                    <div className="text-lg font-bold text-white">{user.role}</div>
+                 </div>
+            </div>
+        </div>
+    );
+};
 
 const AboutPage = () => {
     const [content, setContent] = useState('');
@@ -1255,9 +1233,11 @@ const Profile = ({ currentUser }: { currentUser: User }) => {
   const [trigger, setTrigger] = useState(0);
   const [sponsorPost, setSponsorPost] = useState<Post | null>(null);
   const [dmEnabled, setDmEnabled] = useState(false);
+  const [isFollowing, setIsFollowing] = useState(false);
+  const [followerCount, setFollowerCount] = useState(0);
   const navigate = useNavigate();
 
-  // If no params, default to current user (should redirect really, but handling it here is fine)
+  // If no params, default to current user
   const targetId = userId || currentUser.id;
   const isOwnProfile = targetId === currentUser.id;
 
@@ -1266,12 +1246,20 @@ const Profile = ({ currentUser }: { currentUser: User }) => {
         // Reset state when switching profiles
         setProfileUser(null);
         setPosts([]);
+        setIsFollowing(false);
+        setFollowerCount(0);
 
         if (isOwnProfile) {
             setProfileUser(currentUser);
+            // Fetch own follower count (private)
+            const count = await mockDB.getMyFollowerCount(currentUser.id);
+            setFollowerCount(count);
         } else {
             const u = await mockDB.getUserProfile(targetId);
             setProfileUser(u);
+            // Check if I follow them
+            const following = await mockDB.getFollowStatus(targetId, currentUser.id);
+            setIsFollowing(following);
         }
         const p = await mockDB.getUserPosts(targetId);
         setPosts(p);
@@ -1312,6 +1300,20 @@ const Profile = ({ currentUser }: { currentUser: User }) => {
     }
   };
 
+  const handleFollowToggle = async () => {
+      try {
+          if (isFollowing) {
+              await mockDB.unfollowUser(targetId, currentUser.id);
+              setIsFollowing(false);
+          } else {
+              await mockDB.followUser(targetId, currentUser.id);
+              setIsFollowing(true);
+          }
+      } catch (e: any) {
+          alert("Action failed: " + e.message);
+      }
+  };
+
   // If loading profile failed or user doesn't exist
   if (!profileUser) return <div className="p-10 text-center text-slate-500">Loading Profile...</div>;
 
@@ -1341,11 +1343,11 @@ const Profile = ({ currentUser }: { currentUser: User }) => {
              )}
            </div>
            <h2 className="text-2xl font-bold text-white mt-4">{profileUser.name || profileUser.email.split('@')[0]}</h2>
+           {/* Hide email for others, show for owner */}
+           {isOwnProfile && <p className="text-slate-400 text-sm font-medium">{profileUser.email}</p>}
            
-           {/* Email Visibility Logic - CHANGED: Always hide for non-owners */}
-           {isOwnProfile && (
-               <div className="flex flex-col items-center justify-center gap-2 mt-1">
-                 <p className="text-slate-400 text-sm font-medium">{profileUser.email}</p>
+           {isOwnProfile ? (
+               <div className="flex flex-col items-center justify-center gap-2 mt-4">
                  <div className="flex gap-2 mt-2">
                      <button 
                         onClick={() => {
@@ -1362,13 +1364,21 @@ const Profile = ({ currentUser }: { currentUser: User }) => {
                      </Link>
                  </div>
                </div>
-           )}
-           
-           {!isOwnProfile && dmEnabled && (
-                <div className="mt-4">
-                     <Link to="/messages" className="bg-indigo-600 text-white px-4 py-2 rounded-full text-sm font-bold hover:bg-indigo-500 transition inline-flex items-center gap-2">
-                        <ChatIcon /> Message
-                     </Link>
+           ) : (
+                <div className="mt-4 flex justify-center gap-2">
+                    {/* Follow Button */}
+                    <button 
+                        onClick={handleFollowToggle} 
+                        className={`px-4 py-2 rounded-full text-sm font-bold transition inline-flex items-center gap-2 ${isFollowing ? 'bg-slate-700 hover:bg-red-500/80 text-white' : 'bg-white text-indigo-900 hover:bg-indigo-50'}`}
+                    >
+                        {isFollowing ? <><UserMinusIcon /> Unfollow</> : <><UserPlusIcon /> Follow</>}
+                    </button>
+
+                    {dmEnabled && (
+                        <Link to="/messages" className="bg-indigo-600 text-white px-4 py-2 rounded-full text-sm font-bold hover:bg-indigo-500 transition inline-flex items-center gap-2">
+                            <ChatIcon /> Message
+                        </Link>
+                    )}
                 </div>
            )}
 
@@ -1378,10 +1388,16 @@ const Profile = ({ currentUser }: { currentUser: User }) => {
                  <div className="text-xs text-slate-500 uppercase font-bold tracking-wider mt-1">Posts</div>
               </div>
               {isOwnProfile && (
-                <div className="px-8 text-center">
-                    <div className="text-2xl font-black text-green-400">${profileUser.balance.toFixed(2)}</div>
-                    <div className="text-xs text-slate-500 uppercase font-bold tracking-wider mt-1">Wallet</div>
-                </div>
+                  <>
+                    <div className="px-8 text-center">
+                        <div className="text-2xl font-black text-white">{followerCount}</div>
+                        <div className="text-xs text-slate-500 uppercase font-bold tracking-wider mt-1">Followers</div>
+                    </div>
+                    <div className="px-8 text-center">
+                        <div className="text-2xl font-black text-green-400">${profileUser.balance.toFixed(2)}</div>
+                        <div className="text-xs text-slate-500 uppercase font-bold tracking-wider mt-1">Wallet</div>
+                    </div>
+                  </>
               )}
            </div>
         </div>
@@ -1696,3 +1712,4 @@ const App = () => {
 };
 
 export default App;
+    
