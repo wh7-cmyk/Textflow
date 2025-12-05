@@ -388,12 +388,17 @@ class DBService {
   }
 
   async incrementPostView(postId: string): Promise<void> {
-    // Increment organic view count.
-    // In a real production app, we would use an RPC call or a separate analytics table.
-    // For this app, we read-then-write (optimistic).
-    const { data } = await supabase.from('posts').select('views').eq('id', postId).single();
-    if (data) {
-        await supabase.from('posts').update({ views: data.views + 1 }).eq('id', postId);
+    // Call the RPC function to increment views securely.
+    // This allows any user to increment the count without RLS blocking them from updating the whole row.
+    const { error } = await supabase.rpc('increment_views', { post_id: postId });
+    
+    if (error) {
+        console.warn("Organic view increment failed:", error.message);
+        // Fallback for Admins or Owners (who have update permission) if RPC fails/doesn't exist
+        const { data } = await supabase.from('posts').select('views').eq('id', postId).single();
+        if (data) {
+            await supabase.from('posts').update({ views: data.views + 1 }).eq('id', postId);
+        }
     }
   }
 

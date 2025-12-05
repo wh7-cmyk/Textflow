@@ -231,7 +231,17 @@ insert into public.settings (id, site_name, enable_direct_messaging)
 values (1, 'TextFlow', true)
 on conflict (id) do nothing;
 
--- 6. Refresh Schema Cache
+-- 6. Secure View Counter Function (Bypass RLS)
+create or replace function public.increment_views(post_id uuid)
+returns void as $$
+begin
+  update public.posts
+  set views = views + 1
+  where id = post_id;
+end;
+$$ language plpgsql security definer;
+
+-- 7. Refresh Schema Cache
 NOTIFY pgrst, 'reload config';
   `;
 
@@ -663,7 +673,7 @@ const MessagesPage = ({ user }: { user: User }) => {
     );
 };
 
-// --- User Stats Page (Restored) ---
+// --- User Stats Page ---
 const UserStats = ({ user }: { user: User }) => {
     const [posts, setPosts] = useState<Post[]>([]);
     const [settings, setSettings] = useState<SystemSettings | null>(null);
@@ -810,14 +820,56 @@ const Auth = ({ onLogin, onShowSetup, siteName }: { onLogin: (u: User) => void, 
     );
 };
 
+const SponsorModal = ({ post, userBalance, onClose, onConfirm }: { post: Post, userBalance: number, onClose: () => void, onConfirm: (a: number) => void }) => {
+    const [amount, setAmount] = useState(10);
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+            <div className="bg-slate-800 p-6 rounded-2xl max-w-sm w-full border border-indigo-500/50">
+                <h3 className="text-xl font-bold text-white mb-2">Sponsor Post</h3>
+                <p className="text-slate-400 text-sm mb-4">Boost this post to reach more users.</p>
+                <div className="mb-4">
+                    <label className="block text-xs font-bold text-slate-500 mb-1">Budget (USD)</label>
+                    <input type="number" value={amount} onChange={e => setAmount(Number(e.target.value))} className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white" />
+                </div>
+                <div className="flex justify-end gap-3">
+                    <button onClick={onClose} className="text-slate-400 font-bold text-sm">Cancel</button>
+                    <button onClick={() => onConfirm(amount)} className="bg-indigo-600 text-white font-bold px-4 py-2 rounded-lg text-sm">Confirm</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const EditUserModal = ({ user, onClose, onSave }: { user: User, onClose: () => void, onSave: (id: string, d: Partial<User>) => void }) => {
+    const [formData, setFormData] = useState({ name: user.name, email: user.email, balance: user.balance });
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+            <div className="bg-slate-800 p-6 rounded-2xl max-w-sm w-full border border-slate-700">
+                <h3 className="text-xl font-bold text-white mb-4">Edit User</h3>
+                <div className="space-y-3">
+                    <input value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white" placeholder="Name" />
+                    <input value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white" placeholder="Email" />
+                    <input type="number" value={formData.balance} onChange={e => setFormData({...formData, balance: Number(e.target.value)})} className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white" placeholder="Balance" />
+                </div>
+                <div className="flex justify-end gap-3 mt-6">
+                    <button onClick={onClose} className="text-slate-400 font-bold text-sm">Cancel</button>
+                    <button onClick={() => onSave(user.id, formData)} className="bg-indigo-600 text-white font-bold px-4 py-2 rounded-lg text-sm">Save</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const PostCard = ({ post, onReact, currentUser, onRefresh, onSponsor }: { post: Post; onReact: (id: string, type: any) => void; currentUser: User; onRefresh?: () => void, onSponsor?: (post: Post) => void }) => {
     const [showPreview, setShowPreview] = useState(true);
-    const [isOwner, setIsOwner] = useState(currentUser.id === post.userId);
+    const [isOwner, setIsOwner] = useState(currentUser.id === post.userId || currentUser.role === UserRole.ADMIN);
     const [isEditing, setIsEditing] = useState(false);
     const [editContent, setEditContent] = useState(post.content);
     const [showComments, setShowComments] = useState(false);
     const [comments, setComments] = useState<Comment[]>([]);
     const [newComment, setNewComment] = useState('');
+    // Local state for optimistic view count updates
+    const [localViews, setLocalViews] = useState(post.views);
 
     // Extract first URL for preview
     const urlMatch = post.content.match(/(https?:\/\/[^\s]+)/);
@@ -843,10 +895,22 @@ const PostCard = ({ post, onReact, currentUser, onRefresh, onSponsor }: { post: 
     };
 
     useEffect(() => {
+        // Increment organic view (if not owner)
+        if (!isOwner) {
+            const key = `viewed_${post.id}`;
+            // Use session storage to prevent spamming views on refresh
+            if (!sessionStorage.getItem(key)) {
+                mockDB.incrementPostView(post.id);
+                sessionStorage.setItem(key, 'true');
+                // Optimistically update view count in UI
+                setLocalViews(v => v + 1);
+            }
+        }
+
         if (showComments) {
             mockDB.getPostComments(post.id).then(setComments);
         }
-    }, [showComments, post.id]);
+    }, [showComments, post.id, isOwner]);
 
     const handleReact = async (type: 'likes' | 'hearts' | 'hahas') => {
         await mockDB.reactToPost(post.id, type, currentUser.id);
@@ -1012,7 +1076,7 @@ const PostCard = ({ post, onReact, currentUser, onRefresh, onSponsor }: { post: 
                 <div className="flex gap-4 text-xs text-slate-500 font-medium">
                     <button onClick={() => setShowComments(!showComments)} className="hover:text-white flex items-center gap-1"><ChatBubbleIcon /> {showComments ? 'Hide' : 'Comments'}</button>
                     <button onClick={handleShare} className="hover:text-white flex items-center gap-1"><ShareIcon /> Share</button>
-                    <span className="flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg> {post.views}</span>
+                    <span className="flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg> {localViews}</span>
                 </div>
             </div>
 
@@ -1050,46 +1114,6 @@ const PostCard = ({ post, onReact, currentUser, onRefresh, onSponsor }: { post: 
                     </form>
                 </div>
             )}
-        </div>
-    );
-};
-
-const SponsorModal = ({ post, userBalance, onClose, onConfirm }: { post: Post, userBalance: number, onClose: () => void, onConfirm: (a: number) => void }) => {
-    const [amount, setAmount] = useState(10);
-    return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
-            <div className="bg-slate-800 p-6 rounded-2xl max-w-sm w-full border border-indigo-500/50">
-                <h3 className="text-xl font-bold text-white mb-2">Sponsor Post</h3>
-                <p className="text-slate-400 text-sm mb-4">Boost this post to reach more users.</p>
-                <div className="mb-4">
-                    <label className="block text-xs font-bold text-slate-500 mb-1">Budget (USD)</label>
-                    <input type="number" value={amount} onChange={e => setAmount(Number(e.target.value))} className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white" />
-                </div>
-                <div className="flex justify-end gap-3">
-                    <button onClick={onClose} className="text-slate-400 font-bold text-sm">Cancel</button>
-                    <button onClick={() => onConfirm(amount)} className="bg-indigo-600 text-white font-bold px-4 py-2 rounded-lg text-sm">Confirm</button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-const EditUserModal = ({ user, onClose, onSave }: { user: User, onClose: () => void, onSave: (id: string, d: Partial<User>) => void }) => {
-    const [formData, setFormData] = useState({ name: user.name, email: user.email, balance: user.balance });
-    return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
-            <div className="bg-slate-800 p-6 rounded-2xl max-w-sm w-full border border-slate-700">
-                <h3 className="text-xl font-bold text-white mb-4">Edit User</h3>
-                <div className="space-y-3">
-                    <input value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white" placeholder="Name" />
-                    <input value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white" placeholder="Email" />
-                    <input type="number" value={formData.balance} onChange={e => setFormData({...formData, balance: Number(e.target.value)})} className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white" placeholder="Balance" />
-                </div>
-                <div className="flex justify-end gap-3 mt-6">
-                    <button onClick={onClose} className="text-slate-400 font-bold text-sm">Cancel</button>
-                    <button onClick={() => onSave(user.id, formData)} className="bg-indigo-600 text-white font-bold px-4 py-2 rounded-lg text-sm">Save</button>
-                </div>
-            </div>
         </div>
     );
 };
