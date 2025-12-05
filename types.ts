@@ -61,6 +61,8 @@ export interface Transaction {
 
 export interface SystemSettings {
   siteName: string; // Customizable Website Name
+  siteLogoUrl?: string; // New: Logo URL
+  siteBackgroundUrl?: string; // New: Background Image URL
   adCostPer100kViews: number; // Creator Pay Per View Rate (0.1 USD default per 100k views)
   sponsorAdPricePer1kViews: number; // Advertiser Cost (1 USD default per 1k views)
   minWithdraw: number; // 50 USD default

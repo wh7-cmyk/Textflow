@@ -6,6 +6,8 @@ import { supabase } from './supabaseClient';
 class DBService {
   private settings: SystemSettings = {
     siteName: "TextFlow",
+    siteLogoUrl: "",
+    siteBackgroundUrl: "",
     adCostPer100kViews: 0.1, // Creator earns $0.1 per 100k views
     sponsorAdPricePer1kViews: 1.0, // Advertiser pays $1.0 per 1k views
     minWithdraw: 50,
@@ -26,6 +28,8 @@ class DBService {
             // Map snake_case DB columns to camelCase TS interface
             this.settings = {
                 siteName: data.site_name || "TextFlow",
+                siteLogoUrl: data.site_logo_url || "",
+                siteBackgroundUrl: data.site_background_url || "",
                 adCostPer100kViews: Number(data.ad_cost_per_100k_views) || 0.1,
                 sponsorAdPricePer1kViews: Number(data.sponsor_ad_price_per_1k_views) || 1.0,
                 minWithdraw: Number(data.min_withdraw) || 50,
@@ -708,6 +712,8 @@ class DBService {
     // 1. Map camelCase to snake_case for DB
     const dbPayload: any = {};
     if (newSettings.siteName !== undefined) dbPayload.site_name = newSettings.siteName;
+    if (newSettings.siteLogoUrl !== undefined) dbPayload.site_logo_url = newSettings.siteLogoUrl;
+    if (newSettings.siteBackgroundUrl !== undefined) dbPayload.site_background_url = newSettings.siteBackgroundUrl;
     if (newSettings.adCostPer100kViews !== undefined) dbPayload.ad_cost_per_100k_views = newSettings.adCostPer100kViews;
     if (newSettings.sponsorAdPricePer1kViews !== undefined) dbPayload.sponsor_ad_price_per_1k_views = newSettings.sponsorAdPricePer1kViews;
     if (newSettings.minWithdraw !== undefined) dbPayload.min_withdraw = newSettings.minWithdraw;
