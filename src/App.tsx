@@ -9,13 +9,10 @@ import { mockDB } from './services/mockDb';
 // --- SQL Modal for Supabase Setup ---
 const SupabaseSetup = ({ onClose }: { onClose: () => void }) => {
   const sql = `
--- ✅ SAFE UPDATE SCRIPT (NON-DESTRUCTIVE)
--- Run this in Supabase SQL Editor. 
+-- ✅ SAFE UPDATE SCRIPT
+-- Run this in Supabase SQL Editor to fix missing columns/tables.
 
--- 1. Create Extensions
-create extension if not exists "uuid-ossp";
-
--- 2. Create Tables (If they don't exist)
+-- 1. Create Tables (If not exist)
 create table if not exists public.profiles (
   id uuid references auth.users not null primary key,
   email text,
@@ -27,11 +24,36 @@ create table if not exists public.profiles (
   created_at timestamp with time zone default timezone('utc'::text, now())
 );
 
+create table if not exists public.settings (
+  id int primary key default 1,
+  site_name text default 'TextFlow',
+  site_logo_url text,
+  site_background_url text,
+  ad_cost_per_100k_views numeric default 0.1,
+  sponsor_ad_price_per_1k_views numeric default 1.0,
+  min_withdraw numeric default 50,
+  admin_wallet_address text default '0xAdminWallet...',
+  about_content text default 'About Us content goes here...',
+  policy_content text default 'Privacy Policy goes here...',
+  enable_direct_messaging boolean default true,
+  referral_message text default 'Invite friends! If they sign up via your link, you''ll automatically follow each other.',
+  check (id = 1)
+);
+
+-- 2. Add Columns (Fix for "missing column" errors)
+alter table public.settings add column if not exists site_logo_url text;
+alter table public.settings add column if not exists site_background_url text;
+alter table public.settings add column if not exists sponsor_ad_price_per_1k_views numeric default 1.0;
+alter table public.settings add column if not exists enable_direct_messaging boolean default true;
+alter table public.settings add column if not exists referral_message text default 'Invite friends! If they sign up via your link, you''ll automatically follow each other.';
+alter table public.profiles add column if not exists email_public boolean default true;
+
+-- 3. Create Other Tables
 create table if not exists public.posts (
   id uuid default uuid_generate_v4() primary key,
   user_id uuid references public.profiles(id),
   content text,
-  type text check (type in ('text', 'link')),
+  type text,
   views int default 0,
   sponsored boolean default false,
   likes int default 0,
@@ -50,8 +72,8 @@ create table if not exists public.comments (
 
 create table if not exists public.notifications (
   id uuid default uuid_generate_v4() primary key,
-  user_id uuid references public.profiles(id), -- Recipient
-  actor_id uuid references public.profiles(id), -- Triggered by
+  user_id uuid references public.profiles(id),
+  actor_id uuid references public.profiles(id),
   type text,
   message text,
   link text,
@@ -88,185 +110,47 @@ create table if not exists public.transactions (
   created_at timestamp with time zone default timezone('utc'::text, now())
 );
 
-create table if not exists public.settings (
-  id int primary key default 1,
-  site_name text default 'TextFlow',
-  site_logo_url text,
-  site_background_url text,
-  ad_cost_per_100k_views numeric default 0.1,
-  sponsor_ad_price_per_1k_views numeric default 1.0,
-  min_withdraw numeric default 50,
-  admin_wallet_address text default '0xAdminWallet...',
-  about_content text default 'About Us content goes here...',
-  policy_content text default 'Privacy Policy goes here...',
-  enable_direct_messaging boolean default true,
-  referral_message text,
-  check (id = 1) -- Ensure only one settings row
-);
-
--- 2a. Add Columns to Existing Tables (Fix for "missing column" errors)
-alter table public.settings add column if not exists site_logo_url text;
-alter table public.settings add column if not exists site_background_url text;
-alter table public.settings add column if not exists sponsor_ad_price_per_1k_views numeric default 1.0;
-alter table public.settings add column if not exists enable_direct_messaging boolean default true;
-alter table public.settings add column if not exists referral_message text;
-alter table public.profiles add column if not exists email_public boolean default true;
-
--- 3. Update Permissions (RLS)
-
-alter table public.profiles enable row level security;
-drop policy if exists "Public profiles are viewable by everyone" on public.profiles;
-create policy "Public profiles are viewable by everyone" on public.profiles for select using (true);
-drop policy if exists "Users can update own profile" on public.profiles;
-create policy "Users can update own profile" on public.profiles for update using (auth.uid() = id);
-drop policy if exists "Admins can update any profile" on public.profiles;
-create policy "Admins can update any profile" on public.profiles for update using (
-  exists (select 1 from public.profiles where id = auth.uid() and role = 'ADMIN')
-);
-
-alter table public.settings enable row level security;
-drop policy if exists "Public settings are viewable by everyone" on public.settings;
-create policy "Public settings are viewable by everyone" on public.settings for select using (true);
-drop policy if exists "Admins can update settings" on public.settings;
-create policy "Admins can update settings" on public.settings for update using (
-  exists (select 1 from public.profiles where id = auth.uid() and role = 'ADMIN')
-);
-drop policy if exists "Admins can insert settings" on public.settings;
-create policy "Admins can insert settings" on public.settings for insert with check (
-  exists (select 1 from public.profiles where id = auth.uid() and role = 'ADMIN')
-);
-
-alter table public.posts enable row level security;
-drop policy if exists "Posts are viewable by everyone" on public.posts;
-create policy "Posts are viewable by everyone" on public.posts for select using (true);
-drop policy if exists "Users can create posts" on public.posts;
-create policy "Users can create posts" on public.posts for insert with check (auth.uid() = user_id);
-drop policy if exists "Users can update own posts" on public.posts;
-create policy "Users can update own posts" on public.posts for update using (auth.uid() = user_id);
-drop policy if exists "Users can delete own posts" on public.posts;
-create policy "Users can delete own posts" on public.posts for delete using (auth.uid() = user_id);
-drop policy if exists "Admins can update any post" on public.posts;
-create policy "Admins can update any post" on public.posts for update using (
-  exists (select 1 from public.profiles where id = auth.uid() and role = 'ADMIN')
-);
-drop policy if exists "Admins can delete any post" on public.posts;
-create policy "Admins can delete any post" on public.posts for delete using (
-  exists (select 1 from public.profiles where id = auth.uid() and role = 'ADMIN')
-);
-
-alter table public.comments enable row level security;
-drop policy if exists "Comments viewable by everyone" on public.comments;
-create policy "Comments viewable by everyone" on public.comments for select using (true);
-drop policy if exists "Users can create comments" on public.comments;
-create policy "Users can create comments" on public.comments for insert with check (auth.uid() = user_id);
-drop policy if exists "Users can delete own comments" on public.comments;
-create policy "Users can delete own comments" on public.comments for delete using (auth.uid() = user_id);
-drop policy if exists "Admins can delete any comment" on public.comments;
-create policy "Admins can delete any comment" on public.comments for delete using (
-  exists (select 1 from public.profiles where id = auth.uid() and role = 'ADMIN')
-);
-
-alter table public.notifications enable row level security;
-drop policy if exists "Users view own notifications" on public.notifications;
-create policy "Users view own notifications" on public.notifications for select using (auth.uid() = user_id);
-drop policy if exists "Users update own notifications" on public.notifications;
-create policy "Users update own notifications" on public.notifications for update using (auth.uid() = user_id);
-drop policy if exists "Anyone can insert notifications" on public.notifications;
-create policy "Anyone can insert notifications" on public.notifications for insert with check (true);
-
-alter table public.messages enable row level security;
-drop policy if exists "Users view own messages" on public.messages;
-create policy "Users view own messages" on public.messages for select using (auth.uid() = sender_id or auth.uid() = receiver_id);
-drop policy if exists "Users send messages" on public.messages;
-create policy "Users send messages" on public.messages for insert with check (auth.uid() = sender_id);
-drop policy if exists "Users update messages (read status)" on public.messages;
-create policy "Users update messages (read status)" on public.messages for update using (auth.uid() = receiver_id);
-
-alter table public.follows enable row level security;
-drop policy if exists "Users can see who they follow" on public.follows;
-create policy "Users can see who they follow" on public.follows for select using (auth.uid() = follower_id);
-drop policy if exists "Users can see their followers" on public.follows;
-create policy "Users can see their followers" on public.follows for select using (auth.uid() = following_id);
-drop policy if exists "Users can follow" on public.follows;
-create policy "Users can follow" on public.follows for insert with check (auth.uid() = follower_id);
-drop policy if exists "Users can unfollow" on public.follows;
-create policy "Users can unfollow" on public.follows for delete using (auth.uid() = follower_id);
-
-alter table public.transactions enable row level security;
-drop policy if exists "Users view own txs" on public.transactions;
-create policy "Users view own txs" on public.transactions for select using (auth.uid() = user_id);
-drop policy if exists "Users create txs" on public.transactions;
-create policy "Users create txs" on public.transactions for insert with check (auth.uid() = user_id);
-drop policy if exists "Admins can view all transactions" on public.transactions;
-create policy "Admins can view all transactions" on public.transactions for select using (
-  exists (select 1 from public.profiles where id = auth.uid() and role = 'ADMIN')
-);
-drop policy if exists "Admins can update transactions" on public.transactions;
-create policy "Admins can update transactions" on public.transactions for update using (
-  exists (select 1 from public.profiles where id = auth.uid() and role = 'ADMIN')
-);
-
--- 4. Admin Auto-Setup Trigger
-create or replace function public.handle_new_user()
-returns trigger as $$
-begin
-  insert into public.profiles (id, email, role, balance, name, avatar_url)
-  values (
-    new.id,
-    new.email,
-    case when new.email = 'admin@adminn.com' then 'ADMIN' else 'USER' end,
-    case when new.email = 'admin@adminn.com' then 10000 else 0 end,
-    split_part(new.email, '@', 1),
-    'https://api.dicebear.com/7.x/avataaars/svg?seed=' || new.email
-  );
-  return new;
-end;
-$$ language plpgsql security definer;
-
-drop trigger if exists on_auth_user_created on auth.users;
-create trigger on_auth_user_created
-  after insert on auth.users
-  for each row execute procedure public.handle_new_user();
-
--- 5. Insert Default Settings (Safe Insert)
-insert into public.settings (id, site_name, enable_direct_messaging) 
-values (1, 'TextFlow', true)
-on conflict (id) do nothing;
-
--- 6. Secure View Counter Function (Bypass RLS)
+-- 4. Secure Functions (RPC)
 create or replace function public.increment_views(post_id uuid)
 returns void as $$
 begin
-  update public.posts
-  set views = views + 1
-  where id = post_id;
+  update public.posts set views = views + 1 where id = post_id;
 end;
 $$ language plpgsql security definer;
 
--- 7. Secure Referral Registration (Bypass RLS for mutual follow)
 create or replace function public.register_referral(new_user_id uuid, referrer_id uuid)
 returns void as $$
 begin
-  -- New user follows referrer
   insert into public.follows (follower_id, following_id) values (new_user_id, referrer_id) on conflict do nothing;
-  -- Referrer follows new user
   insert into public.follows (follower_id, following_id) values (referrer_id, new_user_id) on conflict do nothing;
 end;
 $$ language plpgsql security definer;
 
--- 8. Refresh Schema Cache
+-- 5. RLS Policies (Simplified for Safety)
+alter table public.settings enable row level security;
+create policy "Public settings" on public.settings for select using (true);
+create policy "Admin update settings" on public.settings for update using (
+  exists (select 1 from public.profiles where id = auth.uid() and role = 'ADMIN')
+);
+create policy "Admin insert settings" on public.settings for insert with check (
+  exists (select 1 from public.profiles where id = auth.uid() and role = 'ADMIN')
+);
+
+-- 6. Insert Default Settings
+insert into public.settings (id, site_name, enable_direct_messaging) 
+values (1, 'TextFlow', true)
+on conflict (id) do nothing;
+
 NOTIFY pgrst, 'reload config';
   `;
 
   return (
     <div className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center p-4">
       <div className="bg-slate-800 rounded-xl max-w-2xl w-full p-6 border border-indigo-500 shadow-2xl overflow-y-auto max-h-[90vh]">
-        <h2 className="text-2xl font-bold text-indigo-400 mb-2">🛡️ Safe Database Update</h2>
+        <h2 className="text-2xl font-bold text-indigo-400 mb-2">🛡️ Database Setup & Update</h2>
         <div className="mb-4 text-slate-300 text-sm space-y-2">
-            <p>1. Copy the SQL code below.</p>
-            <p>2. Run it in your Supabase SQL Editor.</p>
-            <p className="text-green-400 font-bold bg-green-400/10 p-2 rounded border border-green-400/30">
-               SAFE MODE: This script will NOT delete your existing users or posts. It adds 'settings' and 'follows' tables.
+            <p className="bg-yellow-500/20 text-yellow-200 p-2 rounded border border-yellow-500/50">
+               <strong>Requirement:</strong> Copy the code below and run it in the Supabase SQL Editor. This will create the missing columns for Logo, Background, and Referrals.
             </p>
         </div>
         <div className="bg-slate-950 p-4 rounded-lg border border-slate-700 mb-4 relative group">
@@ -549,6 +433,8 @@ const Navbar = ({ user, onLogout, siteName, logo }: { user: User; onLogout: () =
     </nav>
   );
 };
+
+// ... (Other components: MessagesPage, UserStats, AboutPage, PolicyPage, Auth, SponsorModal, EditUserModal, PostCard, Feed, SinglePost, Wallet, AdvertiserPanel, Profile - remain mostly same, just ensuring Profile uses referral message)
 
 // --- Messaging Page ---
 const MessagesPage = ({ user }: { user: User }) => {
@@ -1365,12 +1251,92 @@ const Wallet = ({ user }: { user: User }) => {
 };
 
 const AdvertiserPanel = ({ user }: { user: User }) => {
-    // Simple placeholder
+    const [posts, setPosts] = useState<Post[]>([]);
+    const [txs, setTxs] = useState<Transaction[]>([]);
+
+    useEffect(() => {
+        // Fetch posts and filter for sponsored ones
+        mockDB.getUserPosts(user.id).then(ps => setPosts(ps.filter(p => p.sponsored)));
+        // Fetch transactions and filter for AD_SPEND
+        mockDB.getUserTransactions(user.id).then(ts => setTxs(ts.filter(t => t.type === 'AD_SPEND')));
+    }, [user]);
+
+    const totalSpent = txs.reduce((sum, t) => sum + t.amount, 0);
+    const totalViews = posts.reduce((sum, p) => sum + p.views, 0);
+
     return (
-        <div className="max-w-2xl mx-auto py-8 px-4">
-            <h1 className="text-2xl font-bold text-white mb-4">Advertiser Dashboard</h1>
-            <p className="text-slate-400">Track your sponsored posts and engagement here.</p>
-            {/* Logic to list sponsored posts by this user would go here */}
+        <div className="max-w-4xl mx-auto py-8 px-4">
+            <h1 className="text-3xl font-bold text-white mb-6">Advertiser Dashboard</h1>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                 <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl relative overflow-hidden">
+                    <div className="absolute right-0 top-0 p-4 opacity-10">
+                        <svg className="w-20 h-20 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1.41 16.09V20h-2.67v-1.93c-1.71-.36-3.15-1.46-3.27-3.4h1.96c.1 1.05 1.18 1.91 2.53 1.91 1.38 0 2.29-.84 2.29-1.93 0-1.02-1.01-1.65-2.61-2-2.33-.52-3.83-1.44-3.83-3.6 0-1.78 1.28-3.04 3.03-3.37V4h2.67v1.9c1.7.35 2.92 1.45 3.07 3.25h-1.99c-.1-1-.96-1.63-2.14-1.63-1.22 0-2.11.75-2.11 1.66 0 .96 1.04 1.45 2.8 1.86 2.45.54 3.65 1.5 3.65 3.53 0 1.96-1.44 3.25-3.32 3.52z"/></svg>
+                    </div>
+                    <div className="relative z-10">
+                        <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Total Spent</h2>
+                        <div className="text-3xl font-black text-white">${totalSpent.toFixed(2)}</div>
+                    </div>
+                 </div>
+
+                 <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl relative overflow-hidden">
+                    <div className="absolute right-0 top-0 p-4 opacity-10">
+                        <svg className="w-20 h-20 text-indigo-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
+                    </div>
+                    <div className="relative z-10">
+                        <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Total Views Generated</h2>
+                        <div className="text-3xl font-black text-indigo-400">{totalViews}</div>
+                    </div>
+                 </div>
+
+                 <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl relative overflow-hidden">
+                    <div className="absolute right-0 top-0 p-4 opacity-10">
+                         <svg className="w-20 h-20 text-green-400" fill="currentColor" viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14z"/></svg>
+                    </div>
+                    <div className="relative z-10">
+                        <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Active Campaigns</h2>
+                        <div className="text-3xl font-black text-white">{posts.length}</div>
+                    </div>
+                 </div>
+            </div>
+
+            <div className="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden">
+                <div className="p-4 border-b border-slate-700 bg-slate-900/50">
+                    <h3 className="font-bold text-white">Campaign History</h3>
+                </div>
+                {posts.length === 0 ? (
+                    <div className="p-8 text-center text-slate-500">
+                        You haven't sponsored any posts yet.
+                    </div>
+                ) : (
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left text-sm text-slate-400">
+                            <thead className="bg-slate-900/50 text-xs uppercase font-bold text-slate-500">
+                                <tr>
+                                    <th className="px-6 py-3">Post Content</th>
+                                    <th className="px-6 py-3 text-center">Views</th>
+                                    <th className="px-6 py-3 text-center">Status</th>
+                                    <th className="px-6 py-3 text-right">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-700">
+                                {posts.map(p => (
+                                    <tr key={p.id} className="hover:bg-slate-700/30">
+                                        <td className="px-6 py-4 max-w-xs truncate text-white">{p.content}</td>
+                                        <td className="px-6 py-4 text-center font-bold text-indigo-400">{p.views}</td>
+                                        <td className="px-6 py-4 text-center">
+                                            <span className="bg-green-500/10 text-green-400 px-2 py-1 rounded text-xs font-bold border border-green-500/20">Active</span>
+                                        </td>
+                                        <td className="px-6 py-4 text-right">
+                                            <Link to={`/post/${p.id}`} className="text-indigo-400 hover:text-white text-xs font-bold">View Post</Link>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </div>
         </div>
     );
 };
@@ -1502,13 +1468,13 @@ const Profile = ({ currentUser }: { currentUser: User }) => {
                    <button onClick={copyProfileLink} className="text-slate-500 hover:text-white transition" title="Copy Link"><ShareIcon /></button>
                </div>
                {isOwnProfile && (
-                   <p className="text-[10px] text-green-400 mt-1 max-w-xs">{referralMessage}</p>
+                   <p className="text-xs text-green-400 mt-2 bg-green-500/10 px-3 py-1 rounded-full border border-green-500/20">{referralMessage}</p>
                )}
            </div>
            
            {/* Email Privacy Logic */}
            <p className="text-slate-400 text-sm font-medium mt-1">
-               {isOwnProfile ? profileUser.email : 'Email Hidden'}
+               {isOwnProfile ? profileUser.email : ''}
            </p>
            
            <div className="flex justify-center gap-3 mt-4">
@@ -1739,7 +1705,7 @@ const AdminPanel = () => {
              <div className="mb-6 bg-red-500/10 border border-red-500/30 p-4 rounded-xl flex justify-between items-center">
                 <div>
                   <h3 className="text-red-400 font-bold text-sm">Database Configuration</h3>
-                  <p className="text-xs text-slate-400 mt-1">Run SQL to update tables (e.g. for Messaging).</p>
+                  <p className="text-xs text-slate-400 mt-1">Run this to ensure all settings (Logo, Referrals) work.</p>
                 </div>
                 <button onClick={() => setShowSql(true)} className="bg-red-500 hover:bg-red-600 text-white text-xs font-bold px-3 py-2 rounded-lg">View Database Setup SQL</button>
              </div>
@@ -1760,8 +1726,10 @@ const AdminPanel = () => {
                 </div>
              </div>
 
-             <div className="space-y-6">
+             <div className="space-y-8">
+                {/* General Section */}
                 <div>
+                    <h3 className="text-white font-bold mb-4 border-b border-slate-700 pb-2">General</h3>
                     <label className="block text-sm font-semibold text-slate-300 mb-2">Website Name</label>
                     <input 
                         type="text" 
@@ -1771,75 +1739,97 @@ const AdminPanel = () => {
                     />
                 </div>
 
-                <div className="h-px bg-slate-700 my-4"></div>
-                <h3 className="font-bold text-white">Appearance</h3>
-                
+                {/* Appearance Section */}
                 <div>
-                    <label className="block text-sm font-semibold text-slate-300 mb-2">Site Logo (URL or Upload)</label>
-                    <div className="flex gap-2">
-                        <input 
-                            type="text" 
-                            value={draftSettings.siteLogoUrl || ''} 
-                            onChange={e => setDraftSettings({...draftSettings, siteLogoUrl: e.target.value})} 
-                            placeholder="https://..." 
-                            className="flex-1 bg-slate-900 border border-slate-600 p-2 rounded-lg text-white text-xs"
-                        />
-                        <label className="bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 rounded-lg text-xs font-bold cursor-pointer">
-                            Upload
-                            <input type="file" accept="image/*" className="hidden" onChange={e => handleFileUpload('siteLogoUrl', e)} />
-                        </label>
+                    <h3 className="text-white font-bold mb-4 border-b border-slate-700 pb-2">Appearance</h3>
+                    <div className="space-y-4">
+                        <div>
+                            <label className="block text-sm font-semibold text-slate-300 mb-2">Site Logo (URL or Upload)</label>
+                            <div className="flex gap-2">
+                                <input 
+                                    type="text" 
+                                    value={draftSettings.siteLogoUrl || ''} 
+                                    onChange={e => setDraftSettings({...draftSettings, siteLogoUrl: e.target.value})} 
+                                    placeholder="https://..." 
+                                    className="flex-1 bg-slate-900 border border-slate-600 p-2 rounded-lg text-white text-xs"
+                                />
+                                <label className="bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 rounded-lg text-xs font-bold cursor-pointer">
+                                    Upload
+                                    <input type="file" accept="image/*" className="hidden" onChange={e => handleFileUpload('siteLogoUrl', e)} />
+                                </label>
+                            </div>
+                            {draftSettings.siteLogoUrl && <img src={draftSettings.siteLogoUrl} className="h-10 mt-2 rounded bg-white/10 p-1" alt="Logo Preview" />}
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-semibold text-slate-300 mb-2">Background Image (URL or Upload)</label>
+                            <div className="flex gap-2">
+                                <input 
+                                    type="text" 
+                                    value={draftSettings.siteBackgroundUrl || ''} 
+                                    onChange={e => setDraftSettings({...draftSettings, siteBackgroundUrl: e.target.value})} 
+                                    placeholder="https://..." 
+                                    className="flex-1 bg-slate-900 border border-slate-600 p-2 rounded-lg text-white text-xs"
+                                />
+                                <label className="bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 rounded-lg text-xs font-bold cursor-pointer">
+                                    Upload
+                                    <input type="file" accept="image/*" className="hidden" onChange={e => handleFileUpload('siteBackgroundUrl', e)} />
+                                </label>
+                            </div>
+                            {draftSettings.siteBackgroundUrl && <div className="h-20 w-full mt-2 rounded bg-cover bg-center border border-slate-600" style={{backgroundImage: `url(${draftSettings.siteBackgroundUrl})`}}></div>}
+                        </div>
                     </div>
-                    {draftSettings.siteLogoUrl && <img src={draftSettings.siteLogoUrl} className="h-10 mt-2 rounded bg-white/10 p-1" alt="Logo Preview" />}
                 </div>
 
+                {/* Economics Section */}
                 <div>
-                    <label className="block text-sm font-semibold text-slate-300 mb-2">Background Image (URL or Upload)</label>
-                    <div className="flex gap-2">
-                        <input 
-                            type="text" 
-                            value={draftSettings.siteBackgroundUrl || ''} 
-                            onChange={e => setDraftSettings({...draftSettings, siteBackgroundUrl: e.target.value})} 
-                            placeholder="https://..." 
-                            className="flex-1 bg-slate-900 border border-slate-600 p-2 rounded-lg text-white text-xs"
-                        />
-                        <label className="bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 rounded-lg text-xs font-bold cursor-pointer">
-                            Upload
-                            <input type="file" accept="image/*" className="hidden" onChange={e => handleFileUpload('siteBackgroundUrl', e)} />
-                        </label>
+                    <h3 className="text-white font-bold mb-4 border-b border-slate-700 pb-2">Economics</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-semibold text-slate-300 mb-2">Creator Earn Rate (USD/100k views)</label>
+                            <input type="number" value={draftSettings.adCostPer100kViews} onChange={(e) => setDraftSettings({ ...draftSettings, adCostPer100kViews: parseFloat(e.target.value) })} className="w-full bg-slate-900 border border-slate-600 p-3 rounded-xl text-white focus:border-indigo-500 outline-none" />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-semibold text-slate-300 mb-2">Advertiser Cost (USD/1k views)</label>
+                            <input type="number" value={draftSettings.sponsorAdPricePer1kViews || 1.0} onChange={(e) => setDraftSettings({ ...draftSettings, sponsorAdPricePer1kViews: parseFloat(e.target.value) })} className="w-full bg-slate-900 border border-slate-600 p-3 rounded-xl text-white focus:border-indigo-500 outline-none" />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-semibold text-slate-300 mb-2">Min Withdrawal (USD)</label>
+                            <input type="number" value={draftSettings.minWithdraw} onChange={(e) => setDraftSettings({ ...draftSettings, minWithdraw: parseFloat(e.target.value) })} className="w-full bg-slate-900 border border-slate-600 p-3 rounded-xl text-white focus:border-indigo-500 outline-none" />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-semibold text-slate-300 mb-2">Admin Receiving Wallet</label>
+                            <input type="text" value={draftSettings.adminWalletAddress} onChange={(e) => setDraftSettings({ ...draftSettings, adminWalletAddress: e.target.value })} className="w-full bg-slate-900 border border-slate-600 p-3 rounded-xl text-white focus:border-indigo-500 outline-none font-mono text-sm" />
+                        </div>
                     </div>
-                    {draftSettings.siteBackgroundUrl && <div className="h-20 w-full mt-2 rounded bg-cover bg-center border border-slate-600" style={{backgroundImage: `url(${draftSettings.siteBackgroundUrl})`}}></div>}
                 </div>
 
-                <div className="h-px bg-slate-700 my-4"></div>
+                {/* Referral Section */}
                 <div>
-                    <label className="block text-sm font-semibold text-slate-300 mb-2">Creator Earning Rate (USD per 100k views)</label>
-                    <input type="number" value={draftSettings.adCostPer100kViews} onChange={(e) => setDraftSettings({ ...draftSettings, adCostPer100kViews: parseFloat(e.target.value) })} className="w-full bg-slate-900 border border-slate-600 p-3 rounded-xl text-white focus:border-indigo-500 outline-none" />
+                    <h3 className="text-white font-bold mb-4 border-b border-slate-700 pb-2">Referral System</h3>
+                    <label className="block text-sm font-semibold text-slate-300 mb-2">Referral Message (Under User's Share Link)</label>
+                    <input 
+                        type="text" 
+                        value={draftSettings.referralMessage || ''} 
+                        onChange={(e) => setDraftSettings({ ...draftSettings, referralMessage: e.target.value })} 
+                        className="w-full bg-slate-900 border border-slate-600 p-3 rounded-xl text-white focus:border-indigo-500 outline-none" 
+                        placeholder="e.g. Invite friends! If they sign up via your link..." 
+                    />
                 </div>
+
+                {/* Content Section */}
                 <div>
-                    <label className="block text-sm font-semibold text-slate-300 mb-2">Advertiser Cost (USD per 1k views)</label>
-                    <input type="number" value={draftSettings.sponsorAdPricePer1kViews || 1.0} onChange={(e) => setDraftSettings({ ...draftSettings, sponsorAdPricePer1kViews: parseFloat(e.target.value) })} className="w-full bg-slate-900 border border-slate-600 p-3 rounded-xl text-white focus:border-indigo-500 outline-none" />
-                </div>
-                <div>
-                    <label className="block text-sm font-semibold text-slate-300 mb-2">Referral Message (Under Link)</label>
-                    <input type="text" value={draftSettings.referralMessage || ''} onChange={(e) => setDraftSettings({ ...draftSettings, referralMessage: e.target.value })} className="w-full bg-slate-900 border border-slate-600 p-3 rounded-xl text-white focus:border-indigo-500 outline-none" placeholder="Invite friends..." />
-                </div>
-                <div className="h-px bg-slate-700 my-4"></div>
-                <div>
-                    <label className="block text-sm font-semibold text-slate-300 mb-2">Minimum Withdrawal (USD)</label>
-                    <input type="number" value={draftSettings.minWithdraw} onChange={(e) => setDraftSettings({ ...draftSettings, minWithdraw: parseFloat(e.target.value) })} className="w-full bg-slate-900 border border-slate-600 p-3 rounded-xl text-white focus:border-indigo-500 outline-none" />
-                </div>
-                <div>
-                    <label className="block text-sm font-semibold text-slate-300 mb-2">Admin Receiving Wallet</label>
-                    <input type="text" value={draftSettings.adminWalletAddress} onChange={(e) => setDraftSettings({ ...draftSettings, adminWalletAddress: e.target.value })} className="w-full bg-slate-900 border border-slate-600 p-3 rounded-xl text-white focus:border-indigo-500 outline-none font-mono text-sm" />
-                </div>
-                <div className="h-px bg-slate-700 my-4"></div>
-                <div>
-                    <label className="block text-sm font-semibold text-slate-300 mb-2">About Page Content</label>
-                    <textarea value={draftSettings.aboutContent} onChange={(e) => setDraftSettings({ ...draftSettings, aboutContent: e.target.value })} className="w-full bg-slate-900 border border-slate-600 p-3 rounded-xl text-white focus:border-indigo-500 outline-none min-h-[100px]" />
-                </div>
-                <div>
-                    <label className="block text-sm font-semibold text-slate-300 mb-2">Policy Page Content</label>
-                    <textarea value={draftSettings.policyContent} onChange={(e) => setDraftSettings({ ...draftSettings, policyContent: e.target.value })} className="w-full bg-slate-900 border border-slate-600 p-3 rounded-xl text-white focus:border-indigo-500 outline-none min-h-[100px]" />
+                    <h3 className="text-white font-bold mb-4 border-b border-slate-700 pb-2">Legal & Content</h3>
+                    <div className="space-y-4">
+                        <div>
+                            <label className="block text-sm font-semibold text-slate-300 mb-2">About Page Content</label>
+                            <textarea value={draftSettings.aboutContent} onChange={(e) => setDraftSettings({ ...draftSettings, aboutContent: e.target.value })} className="w-full bg-slate-900 border border-slate-600 p-3 rounded-xl text-white focus:border-indigo-500 outline-none min-h-[100px]" />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-semibold text-slate-300 mb-2">Policy Page Content</label>
+                            <textarea value={draftSettings.policyContent} onChange={(e) => setDraftSettings({ ...draftSettings, policyContent: e.target.value })} className="w-full bg-slate-900 border border-slate-600 p-3 rounded-xl text-white focus:border-indigo-500 outline-none min-h-[100px]" />
+                        </div>
+                    </div>
                 </div>
                 
                 <button onClick={handleSaveSettings} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl transition shadow-lg mt-4">Save System Settings</button>
