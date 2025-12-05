@@ -202,6 +202,22 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
   }
 }
 
+// --- Helper Functions for Links ---
+const extractUrls = (text: string) => {
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  return text.match(urlRegex) || [];
+};
+
+const isImageUrl = (url: string) => {
+  return /\.(jpeg|jpg|gif|png|webp|bmp|svg)($|\?)/i.test(url);
+};
+
+const getYoutubeVideoId = (url: string) => {
+  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+  const match = url.match(regExp);
+  return (match && match[2].length === 11) ? match[2] : null;
+};
+
 // --- Icons ---
 const HeartIcon = ({ filled }: { filled?: boolean }) => (
   <svg xmlns="http://www.w3.org/2000/svg" fill={filled ? "currentColor" : "none"} viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={`w-5 h-5 ${filled ? 'text-red-500' : ''}`}>
@@ -410,12 +426,18 @@ const PostCard: React.FC<{ post: Post; onReact: (id: string, type: 'likes' | 'he
   const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState('');
   const [loadingComments, setLoadingComments] = useState(false);
+  const [showPreview, setShowPreview] = useState(true);
 
   const isOwner = currentUser?.id === post.userId;
   
   const shareUrl = `${window.location.origin}/#/post/${post.id}`;
   const encodedUrl = encodeURIComponent(shareUrl);
   const encodedText = encodeURIComponent(post.content.length > 50 ? post.content.substring(0, 50) + "..." : post.content);
+
+  // Determine preview content
+  const urls = extractUrls(post.content);
+  // Prefer the content itself if it is a 'link' type post, otherwise look for urls in text
+  const primaryUrl = post.type === 'link' ? post.content : urls[0];
 
   useEffect(() => {
     if (showComments) {
@@ -503,6 +525,71 @@ const PostCard: React.FC<{ post: Post; onReact: (id: string, type: 'likes' | 'he
     }
   };
 
+  const renderContentWithLinks = (text: string) => {
+    // Regex that catches http/s URLs
+    const parts = text.split(/(https?:\/\/[^\s]+)/g);
+    return parts.map((part, i) => {
+      if (part.match(/https?:\/\/[^\s]+/)) {
+        return (
+          <a 
+            key={i} 
+            href={part} 
+            target="_blank" 
+            rel="noreferrer" 
+            className="text-indigo-400 hover:underline break-all"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {part}
+          </a>
+        );
+      }
+      return part;
+    });
+  };
+
+  const renderPreview = () => {
+    if (!primaryUrl || !showPreview) return null;
+    
+    const ytId = getYoutubeVideoId(primaryUrl);
+    const isImg = isImageUrl(primaryUrl);
+
+    // Only show preview if it matches an image or youtube video
+    if (!ytId && !isImg) return null;
+
+    return (
+      <div className="relative mt-4 rounded-xl overflow-hidden bg-black/40 border border-slate-700/50 group/preview animate-fade-in">
+        <button 
+          onClick={(e) => { e.preventDefault(); setShowPreview(false); }}
+          className="absolute top-2 right-2 z-20 bg-black/60 text-white p-1 rounded-full opacity-0 group-hover/preview:opacity-100 transition hover:bg-black/80 shadow-lg backdrop-blur-sm"
+          title="Hide Preview"
+        >
+            <XMarkIcon />
+        </button>
+
+        {isImg && (
+          <div className="w-full bg-slate-900 flex justify-center">
+             <img src={primaryUrl} alt="Preview" className="max-h-96 w-full object-contain" />
+          </div>
+        )}
+
+        {ytId && (
+           <div className="relative aspect-video w-full">
+              <iframe 
+                width="100%" 
+                height="100%" 
+                src={`https://www.youtube.com/embed/${ytId}`} 
+                title="YouTube video player" 
+                frameBorder="0" 
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                allowFullScreen
+                className="absolute inset-0"
+              ></iframe>
+           </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className={`relative bg-slate-800 rounded-2xl p-6 mb-5 border transition-all duration-300 ${post.sponsored ? 'border-indigo-500/40 shadow-[0_0_20px_rgba(99,102,241,0.15)]' : 'border-slate-700/60 hover:border-slate-600'}`}>
       {post.sponsored && (
@@ -550,13 +637,15 @@ const PostCard: React.FC<{ post: Post; onReact: (id: string, type: 'likes' | 'he
           ) : (
             <div className="mt-3 text-slate-200 text-base leading-relaxed break-words font-light">
                 {post.type === 'link' ? (
-                <a href={post.content} target="_blank" rel="noreferrer" className="flex items-center gap-2 p-3 bg-slate-900/50 rounded-lg border border-slate-700/50 text-indigo-400 hover:text-indigo-300 transition group">
-                    <span className="text-xl">🔗</span>
-                    <span className="truncate underline decoration-indigo-500/30 group-hover:decoration-indigo-500">{post.content}</span>
-                </a>
+                  // Even if type is link, we show it clickable, and preview below
+                  <a href={post.content} target="_blank" rel="noreferrer" className="text-indigo-400 hover:underline break-all block mb-2">{post.content}</a>
                 ) : (
-                <p>{post.content}</p>
+                  // Text post that might contain links
+                  <p className="whitespace-pre-wrap">{renderContentWithLinks(post.content)}</p>
                 )}
+                
+                {/* Render Rich Media Preview (Image / YouTube) */}
+                {renderPreview()}
             </div>
           )}
           
