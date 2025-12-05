@@ -26,9 +26,6 @@ create table if not exists public.profiles (
   created_at timestamp with time zone default timezone('utc'::text, now())
 );
 
--- ADD NEW COLUMN (Safe alter)
-alter table public.profiles add column if not exists email_public boolean default true;
-
 create table if not exists public.posts (
   id uuid default uuid_generate_v4() primary key,
   user_id uuid references public.profiles(id),
@@ -146,15 +143,14 @@ create policy "Admins can update transactions" on public.transactions for update
 create or replace function public.handle_new_user()
 returns trigger as $$
 begin
-  insert into public.profiles (id, email, role, balance, name, avatar_url, email_public)
+  insert into public.profiles (id, email, role, balance, name, avatar_url)
   values (
     new.id,
     new.email,
     case when new.email = 'admin@adminn.com' then 'ADMIN' else 'USER' end,
     case when new.email = 'admin@adminn.com' then 10000 else 0 end,
     split_part(new.email, '@', 1),
-    'https://api.dicebear.com/7.x/avataaars/svg?seed=' || new.email,
-    true
+    'https://api.dicebear.com/7.x/avataaars/svg?seed=' || new.email
   );
   return new;
 end;
@@ -177,7 +173,7 @@ NOTIFY pgrst, 'reload config';
             <p>1. Copy the SQL code below.</p>
             <p>2. Run it in your Supabase SQL Editor.</p>
             <p className="text-green-400 font-bold bg-green-400/10 p-2 rounded border border-green-400/30">
-               SAFE MODE: This script will NOT delete your existing users or posts. It adds 'email_public' column.
+               SAFE MODE: This script will NOT delete your existing users or posts. It only adds new features (Messaging, Notifications).
             </p>
         </div>
         <div className="bg-slate-950 p-4 rounded-lg border border-slate-700 mb-4 relative group">
@@ -269,6 +265,11 @@ const HomeIcon = () => (
       <path strokeLinecap="round" strokeLinejoin="round" d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
     </svg>
 );
+const PresentationChartLineIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 0 0 6 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0 1 18 16.5h-2.25m-7.5 0h7.5m-7.5 0-1 3m8.5-3 1 3m0 0 .5 1.5m-.5-1.5h-9.5m0 0-.5 1.5M9 11.25v1.5M12 9v3.75m3-6v6" />
+    </svg>
+);
 
 const HeartIcon = ({ filled }: { filled?: boolean }) => (<svg xmlns="http://www.w3.org/2000/svg" fill={filled ? "currentColor" : "none"} viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={`w-5 h-5 ${filled ? 'text-red-500' : ''}`}><path strokeLinecap="round" strokeLinejoin="round" d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12Z" /></svg>);
 const ThumbUpIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M6.633 10.5c.806 0 1.533-.446 2.031-1.08a9.041 9.041 0 0 1 2.861-2.4c.723-.384 1.35-.956 1.653-1.715a4.498 4.498 0 0 0 .322-1.672V3a.75.75 0 0 1 .75-.75A2.25 2.25 0 0 1 16.5 4.5c0 1.152-.26 2.247-.723 3.218-.266.558.107 1.282.725 1.282h3.126c1.026 0 1.945.694 2.054 1.715.045.422.068.85.068 1.285a11.95 11.95 0 0 1-2.649 7.521c-.388.482-.987.729-1.605.729H13.48c-.483 0-.964-.078-1.423-.23l-3.114-1.04a4.501 4.501 0 0 0-1.423-.23H5.904M14.25 9h2.25M5.904 18.75c.083.205.173.405.27.602.197.4-.078.898-.523.898h-.908c-.889 0-1.713-.518-1.972-1.368a12 12 0 0 1-.521-3.507c0-1.553.295-3.036.831-4.398C3.387 10.203 4.167 9.75 5 9.75h1.053c.472 0 .745.556.5.96a8.958 8.958 0 0 0-1.302 4.665c0 1.194.232 2.333.654 3.375Z" /></svg>);
@@ -280,8 +281,6 @@ const PencilIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" fill="none" vi
 const TrashIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>);
 const CheckIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>);
 const PaperAirplaneIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 -rotate-45 translate-x-1"><path strokeLinecap="round" strokeLinejoin="round" d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5" /></svg>);
-const EyeIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>);
-const EyeSlashIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88" /></svg>);
 
 
 // --- Navbar & Mobile Menu ---
@@ -435,13 +434,14 @@ const Navbar = ({ user, onLogout, siteName }: { user: User; onLogout: () => void
                   <img src={user.avatarUrl} className="w-10 h-10 rounded-full" alt=""/>
                   <div>
                       <p className="text-white font-bold">{user.name}</p>
-                      <p className="text-xs text-slate-400">{user.email}</p>
+                      {/* Email is intentionally hidden in mobile menu too to match profile */}
                   </div>
               </Link>
               {dmEnabled && (
                   <Link to="/messages" onClick={() => setMobileMenuOpen(false)} className="block text-slate-300 hover:text-white py-2 border-b border-slate-800">Messages</Link>
               )}
               <Link to="/advertiser" onClick={() => setMobileMenuOpen(false)} className="block text-slate-300 hover:text-white py-2 border-b border-slate-800">Advertiser Dashboard</Link>
+              <Link to="/stats" onClick={() => setMobileMenuOpen(false)} className="block text-slate-300 hover:text-white py-2 border-b border-slate-800">Statistics</Link>
               <Link to="/about" onClick={() => setMobileMenuOpen(false)} className="block text-slate-300 hover:text-white py-2 border-b border-slate-800">About</Link>
               <Link to="/policy" onClick={() => setMobileMenuOpen(false)} className="block text-slate-300 hover:text-white py-2 border-b border-slate-800">Policy</Link>
               {user.role === UserRole.ADMIN && (
@@ -452,6 +452,80 @@ const Navbar = ({ user, onLogout, siteName }: { user: User; onLogout: () => void
       )}
     </nav>
   );
+};
+
+// --- User Stats Component ---
+const UserStats = ({ user }: { user: User }) => {
+    const [posts, setPosts] = useState<Post[]>([]);
+    const [settings, setSettings] = useState<SystemSettings | null>(null);
+
+    useEffect(() => {
+        const load = async () => {
+            const p = await mockDB.getUserPosts(user.id);
+            const s = await mockDB.getSettings();
+            setPosts(p);
+            setSettings(s);
+        };
+        load();
+    }, [user.id]);
+
+    if (!settings) return <div className="p-10 text-center">Loading stats...</div>;
+
+    const totalViews = posts.reduce((sum, p) => sum + p.views, 0);
+    // Calculation: (Total Views / 100,000) * PayRate
+    const estimatedEarnings = (totalViews / 100000) * settings.adCostPer100kViews;
+
+    return (
+        <div className="max-w-4xl mx-auto py-8 px-4">
+            <h1 className="text-3xl font-black text-white mb-6">Performance Dashboard</h1>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl">
+                    <h3 className="text-slate-400 font-bold text-sm uppercase mb-2">Total Views</h3>
+                    <div className="text-4xl font-black text-white">{totalViews.toLocaleString()}</div>
+                </div>
+                <div className="bg-slate-800 p-6 rounded-2xl border border-indigo-500/30 shadow-xl relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 rounded-full blur-3xl -mr-10 -mt-10"></div>
+                    <h3 className="text-indigo-300 font-bold text-sm uppercase mb-2">Est. Earnings</h3>
+                    <div className="text-4xl font-black text-green-400">${estimatedEarnings.toFixed(4)}</div>
+                    <p className="text-xs text-slate-500 mt-2">Based on ${settings.adCostPer100kViews} per 100k views</p>
+                </div>
+            </div>
+
+            <h2 className="text-xl font-bold text-white mb-4">Post Performance</h2>
+            <div className="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden">
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm text-slate-400">
+                        <thead className="bg-slate-900 text-xs uppercase font-bold text-slate-500">
+                            <tr>
+                                <th className="px-6 py-4">Post</th>
+                                <th className="px-6 py-4">Date</th>
+                                <th className="px-6 py-4">Views</th>
+                                <th className="px-6 py-4">Earnings</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-700">
+                            {posts.length === 0 ? (
+                                <tr><td colSpan={4} className="px-6 py-8 text-center text-slate-500">No posts yet.</td></tr>
+                            ) : (
+                                posts.map(p => {
+                                    const postEarnings = (p.views / 100000) * settings.adCostPer100kViews;
+                                    return (
+                                        <tr key={p.id} className="hover:bg-slate-700/30">
+                                            <td className="px-6 py-4 max-w-xs truncate text-white">{p.content}</td>
+                                            <td className="px-6 py-4">{new Date(p.createdAt).toLocaleDateString()}</td>
+                                            <td className="px-6 py-4 font-mono">{p.views.toLocaleString()}</td>
+                                            <td className="px-6 py-4 font-mono text-green-400">${postEarnings.toFixed(5)}</td>
+                                        </tr>
+                                    );
+                                })
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    );
 };
 
 // --- Messaging Page ---
@@ -884,7 +958,7 @@ const PostCard = ({ post, onReact, currentUser, onRefresh, onSponsor }: { post: 
                                     <div className="flex justify-between items-baseline">
                                         <span className="font-bold text-white text-xs">{c.userEmail.split('@')[0]}</span>
                                         <div className="flex gap-2">
-                                            <span className="text-[10px] text-slate-500">{new Date(c.createdAt).toLocaleDateString()}</p>
+                                            <span className="text-[10px] text-slate-500">{new Date(c.createdAt).toLocaleDateString()}</span>
                                             {currentUser.id === c.userId && (
                                                 <button onClick={() => handleDeleteComment(c.id)} className="text-slate-600 hover:text-red-400"><TrashIcon /></button>
                                             )}
@@ -1206,7 +1280,7 @@ const Profile = ({ currentUser }: { currentUser: User }) => {
         setDmEnabled(s.enableDirectMessaging);
     };
     loadProfile();
-  }, [targetId, currentUser.id, trigger, currentUser]);
+  }, [targetId, currentUser.id, trigger]);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!isOwnProfile) return;
@@ -1236,17 +1310,6 @@ const Profile = ({ currentUser }: { currentUser: User }) => {
     } catch (e: any) {
       alert(e.message);
     }
-  };
-
-  const toggleEmailVisibility = async () => {
-      if (!profileUser || !isOwnProfile) return;
-      try {
-          const newStatus = !profileUser.emailPublic;
-          await mockDB.updateEmailVisibility(profileUser.id, newStatus);
-          setProfileUser({...profileUser, emailPublic: newStatus});
-      } catch(e:any) {
-          alert("Update failed: " + e.message);
-      }
   };
 
   // If loading profile failed or user doesn't exist
@@ -1279,23 +1342,26 @@ const Profile = ({ currentUser }: { currentUser: User }) => {
            </div>
            <h2 className="text-2xl font-bold text-white mt-4">{profileUser.name || profileUser.email.split('@')[0]}</h2>
            
-           {/* Email Visibility Logic */}
-           {isOwnProfile ? (
-               <div className="flex items-center justify-center gap-2 mt-1">
+           {/* Email Visibility Logic - CHANGED: Always hide for non-owners */}
+           {isOwnProfile && (
+               <div className="flex flex-col items-center justify-center gap-2 mt-1">
                  <p className="text-slate-400 text-sm font-medium">{profileUser.email}</p>
-                 <button onClick={toggleEmailVisibility} className="text-slate-500 hover:text-white transition" title={profileUser.emailPublic ? "Public: Everyone can see email" : "Private: Only you see email"}>
-                    {profileUser.emailPublic ? <EyeIcon /> : <EyeSlashIcon />}
-                 </button>
+                 <div className="flex gap-2 mt-2">
+                     <button 
+                        onClick={() => {
+                            const url = `${window.location.origin}/#/profile/${profileUser.id}`;
+                            navigator.clipboard.writeText(url);
+                            alert("Profile Link Copied!");
+                        }} 
+                        className="bg-slate-700 hover:bg-slate-600 text-white px-4 py-1.5 rounded-full text-xs font-bold transition flex items-center gap-1"
+                     >
+                        <ShareIcon /> Share Profile
+                     </button>
+                     <Link to="/stats" className="bg-indigo-900/50 hover:bg-indigo-800 text-indigo-200 border border-indigo-500/30 px-4 py-1.5 rounded-full text-xs font-bold transition flex items-center gap-1">
+                        <PresentationChartLineIcon /> Statistics
+                     </Link>
+                 </div>
                </div>
-           ) : (
-                profileUser.emailPublic ? (
-                    <p className="text-slate-400 text-sm font-medium mt-1">{profileUser.email}</p>
-                ) : (
-                    <p className="text-slate-600 text-xs italic mt-1 flex justify-center items-center gap-1">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3 h-3"><path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" /></svg>
-                        Email hidden
-                    </p>
-                )
            )}
            
            {!isOwnProfile && dmEnabled && (
@@ -1613,6 +1679,7 @@ const App = () => {
                 <Route path="/profile" element={<Navigate to={`/profile/${user.id}`} replace />} />
                 <Route path="/wallet" element={<Wallet user={user} />} />
                 <Route path="/advertiser" element={<AdvertiserPanel user={user} />} />
+                <Route path="/stats" element={<UserStats user={user} />} />
                 <Route path="/messages" element={<MessagesPage user={user} />} />
                 <Route path="/notifications" element={<div className="p-4 text-center">Use the Bell Icon in Navbar</div>} />
                 <Route path="/admin" element={user.role === UserRole.ADMIN ? <AdminPanel /> : <Navigate to="/" />} />
