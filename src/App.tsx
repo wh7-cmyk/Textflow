@@ -261,6 +261,11 @@ const XMarkIcon = () => (
       <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
     </svg>
 );
+const HomeIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+      <path strokeLinecap="round" strokeLinejoin="round" d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
+    </svg>
+);
 
 const HeartIcon = ({ filled }: { filled?: boolean }) => (<svg xmlns="http://www.w3.org/2000/svg" fill={filled ? "currentColor" : "none"} viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={`w-5 h-5 ${filled ? 'text-red-500' : ''}`}><path strokeLinecap="round" strokeLinejoin="round" d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12Z" /></svg>);
 const ThumbUpIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M6.633 10.5c.806 0 1.533-.446 2.031-1.08a9.041 9.041 0 0 1 2.861-2.4c.723-.384 1.35-.956 1.653-1.715a4.498 4.498 0 0 0 .322-1.672V3a.75.75 0 0 1 .75-.75A2.25 2.25 0 0 1 16.5 4.5c0 1.152-.26 2.247-.723 3.218-.266.558.107 1.282.725 1.282h3.126c1.026 0 1.945.694 2.054 1.715.045.422.068.85.068 1.285a11.95 11.95 0 0 1-2.649 7.521c-.388.482-.987.729-1.605.729H13.48c-.483 0-.964-.078-1.423-.23l-3.114-1.04a4.501 4.501 0 0 0-1.423-.23H5.904M14.25 9h2.25M5.904 18.75c.083.205.173.405.27.602.197.4-.078.898-.523.898h-.908c-.889 0-1.713-.518-1.972-1.368a12 12 0 0 1-.521-3.507c0-1.553.295-3.036.831-4.398C3.387 10.203 4.167 9.75 5 9.75h1.053c.472 0 .745.556.5.96a8.958 8.958 0 0 0-1.302 4.665c0 1.194.232 2.333.654 3.375Z" /></svg>);
@@ -328,6 +333,9 @@ const Navbar = ({ user, onLogout, siteName }: { user: User; onLogout: () => void
         
         {/* Desktop Menu */}
         <div className="hidden md:flex items-center gap-4">
+            <Link to="/" className="text-sm font-bold text-white hover:text-indigo-400 transition flex items-center gap-2">
+                <HomeIcon /> <span>Feed</span>
+            </Link>
             <Link to="/about" className="text-sm text-slate-400 hover:text-white transition">About</Link>
             <Link to="/policy" className="text-sm text-slate-400 hover:text-white transition">Policy</Link>
             
@@ -415,6 +423,9 @@ const Navbar = ({ user, onLogout, siteName }: { user: User; onLogout: () => void
       {/* Mobile Dropdown */}
       {mobileMenuOpen && (
           <div className="md:hidden bg-slate-900 border-b border-slate-800 p-4 space-y-4 animate-fade-in absolute w-full left-0 top-16 shadow-2xl">
+              <Link to="/" onClick={() => setMobileMenuOpen(false)} className="block text-indigo-400 font-bold py-2 border-b border-slate-800 flex items-center gap-2">
+                  <HomeIcon /> News Feed
+              </Link>
               <Link to="/profile" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-3 p-2 bg-slate-800 rounded-lg">
                   <img src={user.avatarUrl} className="w-10 h-10 rounded-full" alt=""/>
                   <div>
@@ -650,9 +661,117 @@ const Auth = ({ onLogin, onShowSetup, siteName }: { onLogin: (u: User) => void, 
 };
 
 const PostCard = ({ post, onReact, currentUser, onRefresh }: { post: Post; onReact: (id: string, type: any) => void; currentUser: User; onRefresh?: () => void }) => {
+    const [showPreview, setShowPreview] = useState(true);
+    const [isOwner, setIsOwner] = useState(currentUser.id === post.userId);
+    const [isEditing, setIsEditing] = useState(false);
+    const [editContent, setEditContent] = useState(post.content);
+    const [showComments, setShowComments] = useState(false);
+    const [comments, setComments] = useState<Comment[]>([]);
+    const [newComment, setNewComment] = useState('');
+
+    // Extract first URL for preview
+    const urlMatch = post.content.match(/(https?:\/\/[^\s]+)/);
+    const firstUrl = urlMatch ? urlMatch[0] : (post.type === 'link' ? post.content : null);
+    const isImage = firstUrl ? /\.(jpeg|jpg|gif|png|webp)($|\?)/i.test(firstUrl) : false;
+    const getYoutubeVideoId = (url: string) => {
+        const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+        const match = url.match(regExp);
+        return (match && match[2].length === 11) ? match[2] : null;
+    };
+    const youtubeId = firstUrl ? getYoutubeVideoId(firstUrl) : null;
+    
+    // URL Parser Helper
+    const extractUrls = (text: string) => {
+        const urlRegex = /(https?:\/\/[^\s]+)/g;
+        const parts = text.split(urlRegex);
+        return parts.map((part, index) => {
+            if (part.match(urlRegex)) {
+                return <a key={index} href={part} target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:underline">{part}</a>;
+            }
+            return part;
+        });
+    };
+
+    useEffect(() => {
+        if (showComments) {
+            mockDB.getPostComments(post.id).then(setComments);
+        }
+    }, [showComments, post.id]);
+
     const handleReact = async (type: 'likes' | 'hearts' | 'hahas') => {
         await mockDB.reactToPost(post.id, type, currentUser.id);
         if (onRefresh) onRefresh();
+    };
+
+    const handleUpdate = async () => {
+        try {
+            await mockDB.updatePost(post.id, editContent);
+            setIsEditing(false);
+            if(onRefresh) onRefresh();
+        } catch(e:any) { alert(e.message); }
+    };
+
+    const handleDelete = async () => {
+        if(window.confirm("Are you sure you want to delete this post?")) {
+            try {
+                await mockDB.deletePost(post.id);
+                if(onRefresh) onRefresh();
+            } catch(e:any) { alert(e.message); }
+        }
+    };
+
+    const handlePostComment = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if(!newComment.trim()) return;
+        try {
+            await mockDB.addComment(post.id, currentUser.id, newComment);
+            setNewComment('');
+            mockDB.getPostComments(post.id).then(setComments);
+        } catch(e:any) { alert(e.message); }
+    };
+
+    const handleDeleteComment = async (commentId: string) => {
+        if(window.confirm("Delete comment?")) {
+             try {
+                await mockDB.deleteComment(commentId);
+                mockDB.getPostComments(post.id).then(setComments);
+             } catch(e:any) { alert(e.message); }
+        }
+    }
+
+    const handleShare = async () => {
+        const shareData = {
+            title: `Check out this post by ${post.userEmail.split('@')[0]}`,
+            text: post.content,
+            url: `${window.location.origin}/#/post/${post.id}`
+        };
+        if (navigator.share) {
+            try { await navigator.share(shareData); } catch(e) {}
+        } else {
+           // Fallback UI
+           const url = `${window.location.origin}/#/post/${post.id}`;
+           const encodedUrl = encodeURIComponent(url);
+           const encodedText = encodeURIComponent(post.content);
+           
+           // Create a temporary simple menu
+           const width = 600; const height = 400;
+           const left = window.screen.width / 2 - width / 2;
+           const top = window.screen.height / 2 - height / 2;
+           
+           const newWindow = window.open('', '_blank', `width=${width},height=${height},top=${top},left=${left}`);
+           if(newWindow) {
+               newWindow.document.write(`
+                   <html><head><title>Share</title><style>body{font-family:sans-serif;background:#0f172a;color:white;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;} a{display:block;margin:10px;padding:10px 20px;background:#4f46e5;color:white;text-decoration:none;border-radius:5px;} a:hover{background:#4338ca;}</style></head>
+                   <body>
+                       <h3>Share Post</h3>
+                       <a href="https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}" target="_blank">Facebook</a>
+                       <a href="https://twitter.com/intent/tweet?text=${encodedText}&url=${encodedUrl}" target="_blank">X (Twitter)</a>
+                       <a href="https://api.whatsapp.com/send?text=${encodedText}%20${encodedUrl}" target="_blank">WhatsApp</a>
+                       <button onclick="navigator.clipboard.writeText('${url}'); alert('Copied!');" style="margin:10px;padding:10px 20px;background:#334155;color:white;border:none;border-radius:5px;cursor:pointer;">Copy Link</button>
+                   </body></html>
+               `);
+           }
+        }
     };
 
     return (
@@ -660,7 +779,8 @@ const PostCard = ({ post, onReact, currentUser, onRefresh }: { post: Post; onRea
             {post.sponsored && (
                 <div className="absolute top-0 right-0 bg-amber-500 text-black text-[10px] font-bold px-2 py-1 rounded-bl-lg">SPONSORED</div>
             )}
-            <div className="flex items-center gap-3 mb-4">
+            
+            <div className="flex items-center justify-between mb-4">
                 <Link to={`/profile`} className="flex items-center gap-3">
                     <img src={post.userAvatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${post.userId}`} className="w-10 h-10 rounded-full bg-slate-700" alt="" />
                     <div>
@@ -668,17 +788,55 @@ const PostCard = ({ post, onReact, currentUser, onRefresh }: { post: Post; onRea
                         <p className="text-xs text-slate-500">{new Date(post.createdAt).toLocaleDateString()}</p>
                     </div>
                 </Link>
+                {isOwner && (
+                    <div className="flex gap-2">
+                        {isEditing ? (
+                            <>
+                                <button onClick={() => setIsEditing(false)} className="text-red-400 hover:bg-slate-700 p-1 rounded"><XMarkIcon /></button>
+                                <button onClick={handleUpdate} className="text-green-400 hover:bg-slate-700 p-1 rounded"><CheckIcon /></button>
+                            </>
+                        ) : (
+                            <>
+                                <button onClick={() => setIsEditing(true)} className="text-slate-400 hover:text-indigo-400 hover:bg-slate-700 p-1 rounded"><PencilIcon /></button>
+                                <button onClick={handleDelete} className="text-slate-400 hover:text-red-400 hover:bg-slate-700 p-1 rounded"><TrashIcon /></button>
+                            </>
+                        )}
+                    </div>
+                )}
             </div>
             
-            <Link to={`/post/${post.id}`}>
-                {post.type === 'link' ? (
-                    <a href={post.content} target="_blank" rel="noreferrer" className="block p-4 bg-slate-900/50 rounded-xl border border-slate-700/50 text-indigo-400 hover:underline mb-2 truncate">
-                        🔗 {post.content}
-                    </a>
+            <div className="mb-4">
+                {isEditing ? (
+                    <textarea 
+                        value={editContent} 
+                        onChange={e => setEditContent(e.target.value)} 
+                        className="w-full bg-slate-900 text-white p-3 rounded-lg border border-slate-600 focus:border-indigo-500 outline-none"
+                        rows={4}
+                    />
                 ) : (
-                    <p className="text-slate-200 text-lg mb-4 whitespace-pre-wrap">{post.content}</p>
+                    <>
+                    <div className="text-slate-200 text-lg mb-2 whitespace-pre-wrap">{extractUrls(post.content)}</div>
+                    {/* Rich Media Preview */}
+                    {firstUrl && showPreview && (
+                        <div className="mt-3 relative rounded-xl overflow-hidden bg-black/50 border border-slate-700">
+                             <button onClick={() => setShowPreview(false)} className="absolute top-2 right-2 bg-black/70 text-white rounded-full p-1 hover:bg-red-500/80 transition z-10"><XMarkIcon /></button>
+                             {youtubeId ? (
+                                 <iframe 
+                                    className="w-full aspect-video" 
+                                    src={`https://www.youtube.com/embed/${youtubeId}`} 
+                                    title="YouTube video player" 
+                                    frameBorder="0" 
+                                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                                    allowFullScreen
+                                 ></iframe>
+                             ) : isImage ? (
+                                 <img src={firstUrl} alt="Preview" className="w-full h-auto max-h-[400px] object-contain" onError={() => setShowPreview(false)} />
+                             ) : null}
+                        </div>
+                    )}
+                    </>
                 )}
-            </Link>
+            </div>
 
             <div className="flex items-center justify-between pt-4 border-t border-slate-700/50">
                 <div className="flex gap-4">
@@ -693,10 +851,46 @@ const PostCard = ({ post, onReact, currentUser, onRefresh }: { post: Post; onRea
                     </button>
                 </div>
                 <div className="flex gap-4 text-xs text-slate-500 font-medium">
-                    <Link to={`/post/${post.id}`} className="hover:text-white flex items-center gap-1"><ChatBubbleIcon /> Comments</Link>
+                    <button onClick={() => setShowComments(!showComments)} className="hover:text-white flex items-center gap-1"><ChatBubbleIcon /> {showComments ? 'Hide' : 'Comments'}</button>
+                    <button onClick={handleShare} className="hover:text-white flex items-center gap-1"><ShareIcon /> Share</button>
                     <span className="flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg> {post.views}</span>
                 </div>
             </div>
+
+            {/* Comments Section */}
+            {showComments && (
+                <div className="mt-4 pt-4 border-t border-slate-700/30 animate-fade-in">
+                    <div className="space-y-4 mb-4 max-h-60 overflow-y-auto pr-2">
+                        {comments.length === 0 && <p className="text-xs text-slate-500 text-center">No comments yet.</p>}
+                        {comments.map(c => (
+                            <div key={c.id} className="flex gap-3 bg-slate-900/40 p-3 rounded-xl border border-slate-700/30 group">
+                                <img src={c.userAvatar} className="w-8 h-8 rounded-full" alt="" />
+                                <div className="flex-1">
+                                    <div className="flex justify-between items-baseline">
+                                        <span className="font-bold text-white text-xs">{c.userEmail.split('@')[0]}</span>
+                                        <div className="flex gap-2">
+                                            <span className="text-[10px] text-slate-500">{new Date(c.createdAt).toLocaleDateString()}</span>
+                                            {currentUser.id === c.userId && (
+                                                <button onClick={() => handleDeleteComment(c.id)} className="text-slate-600 hover:text-red-400"><TrashIcon /></button>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <p className="text-slate-300 text-sm mt-1 break-words">{c.content}</p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    <form onSubmit={handlePostComment} className="flex gap-2">
+                        <input 
+                            value={newComment}
+                            onChange={e => setNewComment(e.target.value)}
+                            placeholder="Write a comment..."
+                            className="flex-1 bg-slate-900 border border-slate-600 rounded-full px-4 py-2 text-xs text-white focus:border-indigo-500 outline-none"
+                        />
+                        <button type="submit" className="bg-indigo-600 text-white p-2 rounded-full hover:bg-indigo-500"><PaperAirplaneIcon /></button>
+                    </form>
+                </div>
+            )}
         </div>
     );
 };
@@ -704,6 +898,8 @@ const PostCard = ({ post, onReact, currentUser, onRefresh }: { post: Post; onRea
 const Feed = ({ currentUser }: { currentUser: User }) => {
     const [posts, setPosts] = useState<Post[]>([]);
     const [loading, setLoading] = useState(true);
+    const [newPostContent, setNewPostContent] = useState('');
+    const [isPosting, setIsPosting] = useState(false);
 
     const load = async () => {
         const p = await mockDB.getFeed();
@@ -714,6 +910,23 @@ const Feed = ({ currentUser }: { currentUser: User }) => {
     useEffect(() => {
         load();
     }, []);
+
+    const handleCreatePost = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!newPostContent.trim()) return;
+        setIsPosting(true);
+        try {
+            // Auto-detect type based on content (simple heuristic)
+            const type = newPostContent.match(/^https?:\/\//) ? 'link' : 'text';
+            await mockDB.createPost(currentUser.id, newPostContent, type);
+            setNewPostContent('');
+            await load();
+        } catch (e: any) {
+            alert(e.message);
+        } finally {
+            setIsPosting(false);
+        }
+    };
 
     const handleGenerate = async () => {
         setLoading(true);
@@ -733,12 +946,24 @@ const Feed = ({ currentUser }: { currentUser: User }) => {
             
             <div className="mb-8 bg-slate-800 p-4 rounded-2xl border border-slate-700 flex gap-3">
                 <img src={currentUser.avatarUrl} className="w-10 h-10 rounded-full bg-slate-700" alt="" />
-                <input 
-                   onClick={() => {/* Navigate or expand to create post */}}
-                   placeholder="What's happening?" 
-                   className="flex-1 bg-slate-900 border-none rounded-xl px-4 text-white focus:ring-0 cursor-pointer"
-                   readOnly
-                />
+                <form onSubmit={handleCreatePost} className="flex-1">
+                    <textarea 
+                       value={newPostContent}
+                       onChange={(e) => setNewPostContent(e.target.value)}
+                       placeholder="What's happening?" 
+                       className="w-full bg-slate-900 border-none rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-indigo-500 resize-none outline-none"
+                       rows={2}
+                    />
+                    <div className="flex justify-end mt-2">
+                        <button 
+                            type="submit" 
+                            disabled={!newPostContent.trim() || isPosting}
+                            className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-4 py-2 rounded-full text-sm disabled:opacity-50 transition"
+                        >
+                            {isPosting ? 'Posting...' : 'Post'}
+                        </button>
+                    </div>
+                </form>
             </div>
 
             {loading ? <div className="text-center text-slate-500">Loading feed...</div> : (
