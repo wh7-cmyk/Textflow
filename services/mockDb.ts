@@ -62,7 +62,8 @@ class DBService {
       role: email === 'admin@adminn.com' ? 'ADMIN' : 'USER',
       balance: email === 'admin@adminn.com' ? 10000 : 0, 
       name: email.split('@')[0],
-      avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`
+      avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`,
+      email_public: true
     }]);
 
     // Ignore duplicate key error if trigger already created it
@@ -91,7 +92,8 @@ class DBService {
             balance: (emailFallback === 'admin@adminn.com') ? 10000 : 0,
             name: emailFallback?.split('@')[0] || 'User',
             joinedAt: new Date().toISOString(),
-            avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${userId}`
+            avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${userId}`,
+            emailPublic: true
         };
     }
 
@@ -109,7 +111,8 @@ class DBService {
       balance: Number(data.balance) || 0,
       name: data.name,
       joinedAt: data.created_at,
-      avatarUrl: data.avatar_url
+      avatarUrl: data.avatar_url,
+      emailPublic: data.email_public ?? true // Default to true if column missing
     };
   }
 
@@ -122,6 +125,15 @@ class DBService {
 
     if (error) throw new Error(error.message);
     return this.getUserProfile(userId);
+  }
+  
+  async updateEmailVisibility(userId: string, isPublic: boolean): Promise<void> {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ email_public: isPublic })
+        .eq('id', userId);
+        
+      if (error) throw new Error(error.message);
   }
 
   async adminUpdateUser(userId: string, data: Partial<User>): Promise<User> {
@@ -164,7 +176,8 @@ class DBService {
       balance: Number(d.balance) || 0,
       name: d.name,
       joinedAt: d.created_at,
-      avatarUrl: d.avatar_url
+      avatarUrl: d.avatar_url,
+      emailPublic: d.email_public ?? true
     }));
   }
 

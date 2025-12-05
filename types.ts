@@ -19,6 +19,7 @@ export interface User {
   balance: number; // in USDT
   name: string;
   joinedAt: string;
+  emailPublic: boolean; // Controls visibility of email on profile
 }
 
 export interface Post {
