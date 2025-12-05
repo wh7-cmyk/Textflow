@@ -23,7 +23,6 @@ create table if not exists public.profiles (
   balance numeric default 0,
   name text,
   avatar_url text,
-  email_public boolean default true,
   created_at timestamp with time zone default timezone('utc'::text, now())
 );
 
@@ -222,7 +221,7 @@ NOTIFY pgrst, 'reload config';
             <p>1. Copy the SQL code below.</p>
             <p>2. Run it in your Supabase SQL Editor.</p>
             <p className="text-green-400 font-bold bg-green-400/10 p-2 rounded border border-green-400/30">
-               SAFE MODE: This script will NOT delete your existing users or posts. It adds the 'settings' table.
+               SAFE MODE: This script will NOT delete your existing users or posts. It adds 'settings' and 'follows' tables.
             </p>
         </div>
         <div className="bg-slate-950 p-4 rounded-lg border border-slate-700 mb-4 relative group">
@@ -484,7 +483,7 @@ const Navbar = ({ user, onLogout, siteName }: { user: User; onLogout: () => void
                   <img src={user.avatarUrl} className="w-10 h-10 rounded-full" alt=""/>
                   <div>
                       <p className="text-white font-bold">{user.name}</p>
-                      <p className="text-xs text-slate-400">{user.email}</p>
+                      {/* Email removed from mobile menu to align with privacy */}
                   </div>
               </Link>
               {dmEnabled && (
@@ -641,37 +640,70 @@ const MessagesPage = ({ user }: { user: User }) => {
 
 // --- User Stats Page ---
 const UserStats = ({ user }: { user: User }) => {
+    const [posts, setPosts] = useState<Post[]>([]);
+    const [settings, setSettings] = useState<SystemSettings | null>(null);
+
+    useEffect(() => {
+        mockDB.getUserPosts(user.id).then(setPosts);
+        mockDB.getSettings().then(setSettings);
+    }, [user]);
+
+    if (!settings) return null;
+
+    const totalViews = posts.reduce((acc, p) => acc + p.views, 0);
+    const estimatedEarnings = (totalViews / 100000) * settings.adCostPer100kViews;
+
     return (
-        <div className="max-w-2xl mx-auto py-8 px-4">
-            <h1 className="text-2xl font-bold text-white mb-6">Your Statistics</h1>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                 <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700">
-                    <div className="flex items-center gap-3 mb-2">
-                         <div className="p-2 bg-green-500/10 rounded-lg text-green-400">
-                            <ChartBarIcon />
-                         </div>
-                        <span className="text-slate-400 text-xs font-bold uppercase">Balance</span>
+        <div className="max-w-3xl mx-auto py-8 px-4">
+            <h1 className="text-3xl font-bold text-white mb-6">Performance Statistics</h1>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                 <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-lg">
+                    <div className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Total Views</div>
+                    <div className="text-3xl font-black text-white flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6 text-indigo-400"><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
+                        {totalViews}
                     </div>
-                    <div className="text-3xl font-black text-white">${user.balance.toFixed(2)}</div>
                  </div>
-                 <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700">
-                    <div className="flex items-center gap-3 mb-2">
-                         <div className="p-2 bg-indigo-500/10 rounded-lg text-indigo-400">
-                            <CheckIcon />
-                         </div>
-                        <span className="text-slate-400 text-xs font-bold uppercase">Joined</span>
+                 <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-lg">
+                    <div className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Est. Earnings</div>
+                    <div className="text-3xl font-black text-green-400 flex items-center gap-2">
+                        $ {estimatedEarnings.toFixed(4)}
                     </div>
-                    <div className="text-lg font-bold text-white">{new Date(user.joinedAt).toLocaleDateString()}</div>
+                    <p className="text-[10px] text-slate-500 mt-2">Rate: ${settings.adCostPer100kViews} / 100k views</p>
                  </div>
-                 <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700">
-                    <div className="flex items-center gap-3 mb-2">
-                         <div className="p-2 bg-purple-500/10 rounded-lg text-purple-400">
-                            <UserPlusIcon />
-                         </div>
-                        <span className="text-slate-400 text-xs font-bold uppercase">Role</span>
-                    </div>
-                    <div className="text-lg font-bold text-white">{user.role}</div>
+                 <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-lg">
+                    <div className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Total Posts</div>
+                    <div className="text-3xl font-black text-white">{posts.length}</div>
                  </div>
+            </div>
+
+            <div className="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden">
+                <div className="p-4 border-b border-slate-700 font-bold text-white">Post Performance</div>
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm text-slate-300">
+                        <thead className="bg-slate-900/50 text-xs uppercase text-slate-500">
+                            <tr>
+                                <th className="px-4 py-3">Content</th>
+                                <th className="px-4 py-3 text-center">Views</th>
+                                <th className="px-4 py-3 text-center">Likes</th>
+                                <th className="px-4 py-3 text-right">Est. Earn</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-700">
+                            {posts.map(p => (
+                                <tr key={p.id} className="hover:bg-slate-700/30">
+                                    <td className="px-4 py-3 max-w-xs truncate">{p.content}</td>
+                                    <td className="px-4 py-3 text-center font-bold">{p.views}</td>
+                                    <td className="px-4 py-3 text-center">{p.likes}</td>
+                                    <td className="px-4 py-3 text-right text-green-400 font-mono">
+                                        ${((p.views / 100000) * settings.adCostPer100kViews).toFixed(5)}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     );
@@ -874,7 +906,7 @@ const PostCard = ({ post, onReact, currentUser, onRefresh, onSponsor }: { post: 
             )}
             
             <div className="flex items-center justify-between mb-4">
-                <Link to={`/profile/${post.userId}`} className="flex items-center gap-3 group">
+                <Link to={`/profile/${post.userId}`} onClick={(e) => e.stopPropagation()} className="flex items-center gap-3 group">
                     <img src={post.userAvatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${post.userId}`} className="w-10 h-10 rounded-full bg-slate-700 transition group-hover:ring-2 group-hover:ring-indigo-500" alt="" />
                     <div>
                         <h3 className="font-bold text-white text-sm group-hover:text-indigo-400 group-hover:underline transition">{post.userEmail.split('@')[0]}</h3>
@@ -1210,12 +1242,92 @@ const Wallet = ({ user }: { user: User }) => {
 };
 
 const AdvertiserPanel = ({ user }: { user: User }) => {
-    // Simple placeholder
+    const [posts, setPosts] = useState<Post[]>([]);
+    const [txs, setTxs] = useState<Transaction[]>([]);
+
+    useEffect(() => {
+        // Fetch posts and filter for sponsored ones
+        mockDB.getUserPosts(user.id).then(ps => setPosts(ps.filter(p => p.sponsored)));
+        // Fetch transactions and filter for AD_SPEND
+        mockDB.getUserTransactions(user.id).then(ts => setTxs(ts.filter(t => t.type === 'AD_SPEND')));
+    }, [user]);
+
+    const totalSpent = txs.reduce((sum, t) => sum + t.amount, 0);
+    const totalViews = posts.reduce((sum, p) => sum + p.views, 0);
+
     return (
-        <div className="max-w-2xl mx-auto py-8 px-4">
-            <h1 className="text-2xl font-bold text-white mb-4">Advertiser Dashboard</h1>
-            <p className="text-slate-400">Track your sponsored posts and engagement here.</p>
-            {/* Logic to list sponsored posts by this user would go here */}
+        <div className="max-w-4xl mx-auto py-8 px-4">
+            <h1 className="text-3xl font-bold text-white mb-6">Advertiser Dashboard</h1>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                 <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl relative overflow-hidden">
+                    <div className="absolute right-0 top-0 p-4 opacity-10">
+                        <svg className="w-20 h-20 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1.41 16.09V20h-2.67v-1.93c-1.71-.36-3.15-1.46-3.27-3.4h1.96c.1 1.05 1.18 1.91 2.53 1.91 1.38 0 2.29-.84 2.29-1.93 0-1.02-1.01-1.65-2.61-2-2.33-.52-3.83-1.44-3.83-3.6 0-1.78 1.28-3.04 3.03-3.37V4h2.67v1.9c1.7.35 2.92 1.45 3.07 3.25h-1.99c-.1-1-.96-1.63-2.14-1.63-1.22 0-2.11.75-2.11 1.66 0 .96 1.04 1.45 2.8 1.86 2.45.54 3.65 1.5 3.65 3.53 0 1.96-1.44 3.25-3.32 3.52z"/></svg>
+                    </div>
+                    <div className="relative z-10">
+                        <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Total Spent</h2>
+                        <div className="text-3xl font-black text-white">${totalSpent.toFixed(2)}</div>
+                    </div>
+                 </div>
+
+                 <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl relative overflow-hidden">
+                    <div className="absolute right-0 top-0 p-4 opacity-10">
+                        <svg className="w-20 h-20 text-indigo-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
+                    </div>
+                    <div className="relative z-10">
+                        <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Total Views Generated</h2>
+                        <div className="text-3xl font-black text-indigo-400">{totalViews}</div>
+                    </div>
+                 </div>
+
+                 <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl relative overflow-hidden">
+                    <div className="absolute right-0 top-0 p-4 opacity-10">
+                         <svg className="w-20 h-20 text-green-400" fill="currentColor" viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14z"/></svg>
+                    </div>
+                    <div className="relative z-10">
+                        <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Active Campaigns</h2>
+                        <div className="text-3xl font-black text-white">{posts.length}</div>
+                    </div>
+                 </div>
+            </div>
+
+            <div className="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden">
+                <div className="p-4 border-b border-slate-700 bg-slate-900/50">
+                    <h3 className="font-bold text-white">Campaign History</h3>
+                </div>
+                {posts.length === 0 ? (
+                    <div className="p-8 text-center text-slate-500">
+                        You haven't sponsored any posts yet.
+                    </div>
+                ) : (
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left text-sm text-slate-400">
+                            <thead className="bg-slate-900/50 text-xs uppercase font-bold text-slate-500">
+                                <tr>
+                                    <th className="px-6 py-3">Post Content</th>
+                                    <th className="px-6 py-3 text-center">Views</th>
+                                    <th className="px-6 py-3 text-center">Status</th>
+                                    <th className="px-6 py-3 text-right">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-700">
+                                {posts.map(p => (
+                                    <tr key={p.id} className="hover:bg-slate-700/30">
+                                        <td className="px-6 py-4 max-w-xs truncate text-white">{p.content}</td>
+                                        <td className="px-6 py-4 text-center font-bold text-indigo-400">{p.views}</td>
+                                        <td className="px-6 py-4 text-center">
+                                            <span className="bg-green-500/10 text-green-400 px-2 py-1 rounded text-xs font-bold border border-green-500/20">Active</span>
+                                        </td>
+                                        <td className="px-6 py-4 text-right">
+                                            <Link to={`/post/${p.id}`} className="text-indigo-400 hover:text-white text-xs font-bold">View Post</Link>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </div>
         </div>
     );
 };
@@ -1268,6 +1380,8 @@ const Profile = ({ currentUser }: { currentUser: User }) => {
   const [trigger, setTrigger] = useState(0);
   const [sponsorPost, setSponsorPost] = useState<Post | null>(null);
   const [dmEnabled, setDmEnabled] = useState(false);
+  const [isFollowing, setIsFollowing] = useState(false);
+  const [followerCount, setFollowerCount] = useState(0);
   const navigate = useNavigate();
 
   // If no params, default to current user (should redirect really, but handling it here is fine)
@@ -1282,9 +1396,14 @@ const Profile = ({ currentUser }: { currentUser: User }) => {
 
         if (isOwnProfile) {
             setProfileUser(currentUser);
+            // Only owners can see their own follower count (Privacy Feature)
+            const count = await mockDB.getMyFollowerCount(currentUser.id);
+            setFollowerCount(count);
         } else {
             const u = await mockDB.getUserProfile(targetId);
             setProfileUser(u);
+            const following = await mockDB.getFollowStatus(targetId, currentUser.id);
+            setIsFollowing(following);
         }
         const p = await mockDB.getUserPosts(targetId);
         setPosts(p);
@@ -1313,6 +1432,19 @@ const Profile = ({ currentUser }: { currentUser: User }) => {
     }
   };
 
+  const toggleFollow = async () => {
+      try {
+          if (isFollowing) {
+              await mockDB.unfollowUser(targetId, currentUser.id);
+          } else {
+              await mockDB.followUser(targetId, currentUser.id);
+          }
+          setIsFollowing(!isFollowing);
+      } catch (e: any) {
+          alert("Action failed: " + e.message);
+      }
+  };
+
   const confirmSponsor = async (amount: number) => {
     if (!sponsorPost) return;
     try {
@@ -1323,6 +1455,12 @@ const Profile = ({ currentUser }: { currentUser: User }) => {
     } catch (e: any) {
       alert(e.message);
     }
+  };
+
+  const copyProfileLink = () => {
+    const url = `${window.location.origin}/#/profile/${targetId}`;
+    navigator.clipboard.writeText(url);
+    alert("Profile link copied to clipboard!");
   };
 
   // If loading profile failed or user doesn't exist
@@ -1353,27 +1491,66 @@ const Profile = ({ currentUser }: { currentUser: User }) => {
                 </label>
              )}
            </div>
-           <h2 className="text-2xl font-bold text-white mt-4">{profileUser.name || profileUser.email.split('@')[0]}</h2>
-           <p className="text-slate-400 text-sm font-medium">{profileUser.email}</p>
            
-           {!isOwnProfile && dmEnabled && (
-                <div className="mt-4">
-                     <Link to="/messages" className="bg-indigo-600 text-white px-4 py-2 rounded-full text-sm font-bold hover:bg-indigo-500 transition inline-flex items-center gap-2">
-                        <ChatIcon /> Message
-                     </Link>
-                </div>
+           <div className="flex items-center justify-center gap-2 mt-4">
+               <h2 className="text-2xl font-bold text-white">{profileUser.name || profileUser.email.split('@')[0]}</h2>
+               <button onClick={copyProfileLink} className="text-slate-500 hover:text-white transition" title="Copy Link"><ShareIcon /></button>
+           </div>
+           
+           {/* Email Privacy Logic: Renders email only if it IS your profile */}
+           {isOwnProfile && (
+             <p className="text-slate-400 text-sm font-medium mt-1">
+                 {profileUser.email} <span className="text-xs text-slate-500 bg-slate-900/50 px-2 rounded ml-1">(Private)</span>
+             </p>
            )}
+           
+           <div className="flex justify-center gap-3 mt-4">
+               {!isOwnProfile && (
+                   <button 
+                       onClick={toggleFollow}
+                       className={`px-6 py-2 rounded-full text-sm font-bold transition flex items-center gap-2 ${isFollowing ? 'bg-slate-700 text-white hover:bg-red-500/20 hover:text-red-400' : 'bg-white text-indigo-900 hover:bg-indigo-100'}`}
+                   >
+                       {isFollowing ? (
+                           <><UserMinusIcon /> Unfollow</>
+                       ) : (
+                           <><UserPlusIcon /> Follow</>
+                       )}
+                   </button>
+               )}
+               
+               {!isOwnProfile && dmEnabled && (
+                    <Link to="/messages" className="bg-indigo-600 text-white px-6 py-2 rounded-full text-sm font-bold hover:bg-indigo-500 transition inline-flex items-center gap-2">
+                        <ChatIcon /> Message
+                    </Link>
+               )}
+               
+               {isOwnProfile && (
+                   <Link to="/stats" className="bg-slate-700 hover:bg-slate-600 text-white px-6 py-2 rounded-full text-sm font-bold transition flex items-center gap-2">
+                       <ChartBarIcon /> Statistics
+                   </Link>
+               )}
+           </div>
 
            <div className="mt-8 flex justify-center divide-x divide-slate-700">
               <div className="px-8 text-center">
                  <div className="text-2xl font-black text-white">{posts.length}</div>
                  <div className="text-xs text-slate-500 uppercase font-bold tracking-wider mt-1">Posts</div>
               </div>
-              {isOwnProfile && (
-                <div className="px-8 text-center">
-                    <div className="text-2xl font-black text-green-400">${profileUser.balance.toFixed(2)}</div>
-                    <div className="text-xs text-slate-500 uppercase font-bold tracking-wider mt-1">Wallet</div>
-                </div>
+              {isOwnProfile ? (
+                 <>
+                    <div className="px-8 text-center">
+                        <div className="text-2xl font-black text-white">{followerCount}</div>
+                        <div className="text-xs text-slate-500 uppercase font-bold tracking-wider mt-1">Followers</div>
+                    </div>
+                    <div className="px-8 text-center">
+                        <div className="text-2xl font-black text-green-400">${profileUser.balance.toFixed(2)}</div>
+                        <div className="text-xs text-slate-500 uppercase font-bold tracking-wider mt-1">Wallet</div>
+                    </div>
+                 </>
+              ) : (
+                  <div className="px-8 text-center">
+                      <div className="text-sm font-bold text-slate-400 mt-2">Private Stats</div>
+                  </div>
               )}
            </div>
         </div>
