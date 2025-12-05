@@ -103,6 +103,13 @@ create table if not exists public.settings (
   check (id = 1) -- Ensure only one settings row
 );
 
+-- 2a. Add Columns to Existing Tables (Fix for "missing column" errors)
+alter table public.settings add column if not exists site_logo_url text;
+alter table public.settings add column if not exists site_background_url text;
+alter table public.settings add column if not exists sponsor_ad_price_per_1k_views numeric default 1.0;
+alter table public.settings add column if not exists enable_direct_messaging boolean default true;
+alter table public.profiles add column if not exists email_public boolean default true;
+
 -- 3. Update Permissions (RLS)
 
 alter table public.profiles enable row level security;
@@ -1310,7 +1317,6 @@ const AdvertiserPanel = ({ user }: { user: User }) => {
     );
 };
 
-// Updated Profile Component to handle routing by userId and view other profiles
 const Profile = ({ currentUser }: { currentUser: User }) => {
   const { userId } = useParams();
   const [profileUser, setProfileUser] = useState<User | null>(null);

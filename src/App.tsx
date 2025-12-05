@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useRef } from 'react';
 import { HashRouter, Routes, Route, Navigate, Link, useNavigate, useParams } from 'react-router-dom';
 import { 
@@ -91,8 +92,6 @@ create table if not exists public.transactions (
 create table if not exists public.settings (
   id int primary key default 1,
   site_name text default 'TextFlow',
-  site_logo_url text,
-  site_background_url text,
   ad_cost_per_100k_views numeric default 0.1,
   sponsor_ad_price_per_1k_views numeric default 1.0,
   min_withdraw numeric default 50,
@@ -104,11 +103,11 @@ create table if not exists public.settings (
 );
 
 -- 2a. Add Columns to Existing Tables (Fix for "missing column" errors)
-alter table public.settings add column if not exists site_logo_url text;
-alter table public.settings add column if not exists site_background_url text;
 alter table public.settings add column if not exists sponsor_ad_price_per_1k_views numeric default 1.0;
 alter table public.settings add column if not exists enable_direct_messaging boolean default true;
 alter table public.profiles add column if not exists email_public boolean default true;
+alter table public.settings add column if not exists site_logo_url text;
+alter table public.settings add column if not exists site_background_url text;
 
 -- 3. Update Permissions (RLS)
 
@@ -356,7 +355,7 @@ const UserMinusIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" fill="none"
 
 // --- Navbar & Mobile Menu ---
 
-const Navbar = ({ user, onLogout, siteName, logo }: { user: User; onLogout: () => void; siteName: string; logo?: string }) => {
+const Navbar = ({ user, onLogout, siteName }: { user: User; onLogout: () => void; siteName: string }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showNotif, setShowNotif] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -404,10 +403,7 @@ const Navbar = ({ user, onLogout, siteName, logo }: { user: User; onLogout: () =
     <nav className="sticky top-0 z-40 w-full bg-slate-900/90 border-b border-slate-800 backdrop-blur-md">
       <div className="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between">
         {/* Logo */}
-        <Link to="/" className="flex items-center gap-2">
-            {logo ? <img src={logo} className="h-8 w-auto rounded" alt="Logo" /> : null}
-            <span className="text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400 tracking-tight">{siteName}</span>
-        </Link>
+        <Link to="/" className="text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400 tracking-tight">{siteName}</Link>
         
         {/* Desktop Menu */}
         <div className="hidden md:flex items-center gap-4">
@@ -810,9 +806,49 @@ const Auth = ({ onLogin, onShowSetup, siteName }: { onLogin: (u: User) => void, 
     );
 };
 
+const SponsorModal = ({ post, userBalance, onClose, onConfirm }: { post: Post, userBalance: number, onClose: () => void, onConfirm: (a: number) => void }) => {
+    const [amount, setAmount] = useState(10);
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+            <div className="bg-slate-800 p-6 rounded-2xl max-w-sm w-full border border-indigo-500/50">
+                <h3 className="text-xl font-bold text-white mb-2">Sponsor Post</h3>
+                <p className="text-slate-400 text-sm mb-4">Boost this post to reach more users.</p>
+                <div className="mb-4">
+                    <label className="block text-xs font-bold text-slate-500 mb-1">Budget (USD)</label>
+                    <input type="number" value={amount} onChange={e => setAmount(Number(e.target.value))} className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white" />
+                </div>
+                <div className="flex justify-end gap-3">
+                    <button onClick={onClose} className="text-slate-400 font-bold text-sm">Cancel</button>
+                    <button onClick={() => onConfirm(amount)} className="bg-indigo-600 text-white font-bold px-4 py-2 rounded-lg text-sm">Confirm</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const EditUserModal = ({ user, onClose, onSave }: { user: User, onClose: () => void, onSave: (id: string, d: Partial<User>) => void }) => {
+    const [formData, setFormData] = useState({ name: user.name, email: user.email, balance: user.balance });
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+            <div className="bg-slate-800 p-6 rounded-2xl max-w-sm w-full border border-slate-700">
+                <h3 className="text-xl font-bold text-white mb-4">Edit User</h3>
+                <div className="space-y-3">
+                    <input value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white" placeholder="Name" />
+                    <input value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white" placeholder="Email" />
+                    <input type="number" value={formData.balance} onChange={e => setFormData({...formData, balance: Number(e.target.value)})} className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white" placeholder="Balance" />
+                </div>
+                <div className="flex justify-end gap-3 mt-6">
+                    <button onClick={onClose} className="text-slate-400 font-bold text-sm">Cancel</button>
+                    <button onClick={() => onSave(user.id, formData)} className="bg-indigo-600 text-white font-bold px-4 py-2 rounded-lg text-sm">Save</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const PostCard = ({ post, onReact, currentUser, onRefresh, onSponsor }: { post: Post; onReact: (id: string, type: any) => void; currentUser: User; onRefresh?: () => void, onSponsor?: (post: Post) => void }) => {
     const [showPreview, setShowPreview] = useState(true);
-    const [isOwner, setIsOwner] = useState(currentUser.id === post.userId);
+    const [isOwner, setIsOwner] = useState(currentUser.id === post.userId || currentUser.role === UserRole.ADMIN);
     const [isEditing, setIsEditing] = useState(false);
     const [editContent, setEditContent] = useState(post.content);
     const [showComments, setShowComments] = useState(false);
@@ -1277,46 +1313,6 @@ const AdvertiserPanel = ({ user }: { user: User }) => {
     );
 };
 
-const SponsorModal = ({ post, userBalance, onClose, onConfirm }: { post: Post, userBalance: number, onClose: () => void, onConfirm: (a: number) => void }) => {
-    const [amount, setAmount] = useState(10);
-    return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
-            <div className="bg-slate-800 p-6 rounded-2xl max-w-sm w-full border border-indigo-500/50">
-                <h3 className="text-xl font-bold text-white mb-2">Sponsor Post</h3>
-                <p className="text-slate-400 text-sm mb-4">Boost this post to reach more users.</p>
-                <div className="mb-4">
-                    <label className="block text-xs font-bold text-slate-500 mb-1">Budget (USD)</label>
-                    <input type="number" value={amount} onChange={e => setAmount(Number(e.target.value))} className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white" />
-                </div>
-                <div className="flex justify-end gap-3">
-                    <button onClick={onClose} className="text-slate-400 font-bold text-sm">Cancel</button>
-                    <button onClick={() => onConfirm(amount)} className="bg-indigo-600 text-white font-bold px-4 py-2 rounded-lg text-sm">Confirm</button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-const EditUserModal = ({ user, onClose, onSave }: { user: User, onClose: () => void, onSave: (id: string, d: Partial<User>) => void }) => {
-    const [formData, setFormData] = useState({ name: user.name, email: user.email, balance: user.balance });
-    return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
-            <div className="bg-slate-800 p-6 rounded-2xl max-w-sm w-full border border-slate-700">
-                <h3 className="text-xl font-bold text-white mb-4">Edit User</h3>
-                <div className="space-y-3">
-                    <input value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white" placeholder="Name" />
-                    <input value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white" placeholder="Email" />
-                    <input type="number" value={formData.balance} onChange={e => setFormData({...formData, balance: Number(e.target.value)})} className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white" placeholder="Balance" />
-                </div>
-                <div className="flex justify-end gap-3 mt-6">
-                    <button onClick={onClose} className="text-slate-400 font-bold text-sm">Cancel</button>
-                    <button onClick={() => onSave(user.id, formData)} className="bg-indigo-600 text-white font-bold px-4 py-2 rounded-lg text-sm">Save</button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
 // Updated Profile Component to handle routing by userId and view other profiles
 const Profile = ({ currentUser }: { currentUser: User }) => {
   const { userId } = useParams();
@@ -1519,7 +1515,6 @@ const Profile = ({ currentUser }: { currentUser: User }) => {
   );
 };
 
-// Admin Panel Update to include DM Toggle
 const AdminPanel = () => {
   const [settings, setSettings] = useState<SystemSettings | null>(null);
   const [draftSettings, setDraftSettings] = useState<SystemSettings | null>(null);
@@ -1538,7 +1533,6 @@ const AdminPanel = () => {
     mockDB.getPendingWithdrawals().then(setWithdrawals);
   }, [editUser]);
 
-  // ... (handleProcess, handleSaveUser, handleSaveSettings same as before)
   const handleProcess = async (id: string, approve: boolean) => {
     try {
         await mockDB.processWithdrawal(id, approve);
@@ -1609,6 +1603,7 @@ const AdminPanel = () => {
 
       {view === 'USERS' && (
          <div className="bg-slate-800 rounded-2xl overflow-hidden border border-slate-700 shadow-xl">
+            {/* User Table (Same as before) */}
             <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm text-slate-400">
                 <thead className="bg-slate-900 text-xs uppercase font-bold text-slate-500 tracking-wider">
@@ -1647,6 +1642,7 @@ const AdminPanel = () => {
 
       {view === 'WITHDRAWALS' && (
         <div className="space-y-4 max-w-3xl">
+          {/* Withdrawals List (Same as before) */}
           {withdrawals.length === 0 && (
              <div className="text-center py-20 bg-slate-800 rounded-2xl border border-slate-700 border-dashed">
                  <p className="text-slate-500">No pending withdrawals.</p>
@@ -1680,7 +1676,6 @@ const AdminPanel = () => {
                 <button onClick={() => setShowSql(true)} className="bg-red-500 hover:bg-red-600 text-white text-xs font-bold px-3 py-2 rounded-lg">View Database Setup SQL</button>
              </div>
              
-             {/* New DM Toggle */}
              <div className="mb-6 bg-indigo-500/10 border border-indigo-500/30 p-4 rounded-xl flex justify-between items-center">
                 <div>
                   <h3 className="text-indigo-400 font-bold text-sm">Direct Messaging System</h3>
