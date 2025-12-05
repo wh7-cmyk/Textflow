@@ -13,6 +13,7 @@ class DBService {
     aboutContent: "## About Us\n\nWe are the premier platform for text-based creators to monetize their thoughts.\n\n### Our Mission\nTo empower writers through crypto micropayments and provide a censorship-resistant platform for sharing ideas.",
     policyContent: "## Privacy Policy\n\n1. **Data Collection**: We collect email and basic profile info to facilitate account management and payments.\n2. **Payments**: All payments are processed via USDT (TRC20/ERC20/BEP20) on the blockchain.\n3. **Content**: We do not allow illegal content. Community guidelines apply to all posts.",
     enableDirectMessaging: true,
+    referralMessage: "Invite friends! If they sign up via your link, you'll automatically follow each other.",
   };
 
   constructor() {
@@ -35,6 +36,7 @@ class DBService {
                 enableDirectMessaging: data.enable_direct_messaging ?? true,
                 siteLogoUrl: data.site_logo_url,
                 siteBackgroundUrl: data.site_background_url,
+                referralMessage: data.referral_message || "Invite friends! If they sign up via your link, you'll automatically follow each other.",
             };
         } else if (error) {
             // Handle specific errors gracefully
@@ -66,7 +68,7 @@ class DBService {
     return this.getUserProfile(data.user.id, data.user.email || email);
   }
 
-  async signUp(email: string, password: string): Promise<User> {
+  async signUp(email: string, password: string, referrerId?: string): Promise<User> {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -89,6 +91,28 @@ class DBService {
       avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`,
       email_public: true
     }]);
+
+    // Handle Referral (Mutual Follow)
+    if (referrerId && referrerId !== data.user.id) {
+        try {
+            // Call the RPC function to safely insert mutual follows (bypassing strict RLS for the referrer side)
+            await supabase.rpc('register_referral', { 
+                new_user_id: data.user.id, 
+                referrer_id: referrerId 
+            });
+            
+            // Notify the referrer
+            await this.createNotification(
+                referrerId,
+                data.user.id,
+                'SYSTEM',
+                'joined via your referral link! You now follow each other.',
+                `/profile/${data.user.id}`
+            );
+        } catch (e) {
+            console.error("Referral logic failed", e);
+        }
+    }
 
     // Ignore duplicate key error if trigger already created it
     if (profileError && !profileError.message.includes('duplicate key')) {
@@ -734,6 +758,7 @@ class DBService {
     if (newSettings.enableDirectMessaging !== undefined) dbPayload.enable_direct_messaging = newSettings.enableDirectMessaging;
     if (newSettings.siteLogoUrl !== undefined) dbPayload.site_logo_url = newSettings.siteLogoUrl;
     if (newSettings.siteBackgroundUrl !== undefined) dbPayload.site_background_url = newSettings.siteBackgroundUrl;
+    if (newSettings.referralMessage !== undefined) dbPayload.referral_message = newSettings.referralMessage;
 
     // 2. Update DB
     const { error } = await supabase.from('settings').update(dbPayload).eq('id', 1);

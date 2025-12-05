@@ -70,6 +70,7 @@ export interface SystemSettings {
   enableDirectMessaging: boolean; // Admin toggle for DMs
   siteLogoUrl?: string;
   siteBackgroundUrl?: string;
+  referralMessage?: string; // Message shown under share link
 }
 
 export interface Notification {

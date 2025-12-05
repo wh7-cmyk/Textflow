@@ -100,6 +100,7 @@ create table if not exists public.settings (
   about_content text default 'About Us content goes here...',
   policy_content text default 'Privacy Policy goes here...',
   enable_direct_messaging boolean default true,
+  referral_message text,
   check (id = 1) -- Ensure only one settings row
 );
 
@@ -108,6 +109,7 @@ alter table public.settings add column if not exists site_logo_url text;
 alter table public.settings add column if not exists site_background_url text;
 alter table public.settings add column if not exists sponsor_ad_price_per_1k_views numeric default 1.0;
 alter table public.settings add column if not exists enable_direct_messaging boolean default true;
+alter table public.settings add column if not exists referral_message text;
 alter table public.profiles add column if not exists email_public boolean default true;
 
 -- 3. Update Permissions (RLS)
@@ -231,7 +233,28 @@ insert into public.settings (id, site_name, enable_direct_messaging)
 values (1, 'TextFlow', true)
 on conflict (id) do nothing;
 
--- 6. Refresh Schema Cache
+-- 6. Secure View Counter Function (Bypass RLS)
+create or replace function public.increment_views(post_id uuid)
+returns void as $$
+begin
+  update public.posts
+  set views = views + 1
+  where id = post_id;
+end;
+$$ language plpgsql security definer;
+
+-- 7. Secure Referral Registration (Bypass RLS for mutual follow)
+create or replace function public.register_referral(new_user_id uuid, referrer_id uuid)
+returns void as $$
+begin
+  -- New user follows referrer
+  insert into public.follows (follower_id, following_id) values (new_user_id, referrer_id) on conflict do nothing;
+  -- Referrer follows new user
+  insert into public.follows (follower_id, following_id) values (referrer_id, new_user_id) on conflict do nothing;
+end;
+$$ language plpgsql security definer;
+
+-- 8. Refresh Schema Cache
 NOTIFY pgrst, 'reload config';
   `;
 
@@ -763,12 +786,27 @@ const Auth = ({ onLogin, onShowSetup, siteName }: { onLogin: (u: User) => void, 
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
+    const [referralId, setReferralId] = useState<string | null>(null);
+
+    useEffect(() => {
+        // Check for referral ID in URL hash: #/profile/USER_ID
+        const hash = window.location.hash;
+        const match = hash.match(/#\/profile\/([a-zA-Z0-9-]+)/);
+        if (match && match[1]) {
+            setReferralId(match[1]);
+            // Force "Create Account" mode if referral present
+            setIsLogin(false);
+        }
+    }, []);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
         try {
-            const user = isLogin ? await mockDB.signIn(email, password) : await mockDB.signUp(email, password);
+            // Pass referralId only during signup
+            const user = isLogin 
+                ? await mockDB.signIn(email, password) 
+                : await mockDB.signUp(email, password, referralId || undefined);
             localStorage.setItem('tf_current_user', JSON.stringify(user));
             onLogin(user);
         } catch (err: any) {
@@ -786,7 +824,13 @@ const Auth = ({ onLogin, onShowSetup, siteName }: { onLogin: (u: User) => void, 
         <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
             <div className="w-full max-w-md bg-slate-800 p-8 rounded-2xl shadow-2xl border border-slate-700">
                 <h1 className="text-3xl font-black text-center mb-2 bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-purple-400">{siteName}</h1>
-                <p className="text-center text-slate-400 mb-8">{isLogin ? 'Welcome back!' : 'Join the revolution.'}</p>
+                <p className="text-center text-slate-400 mb-8">
+                    {referralId && !isLogin ? (
+                        <span className="text-green-400 font-bold bg-green-900/30 px-3 py-1 rounded-full text-xs border border-green-500/30">Referral Accepted! Sign up to connect.</span>
+                    ) : (
+                        isLogin ? 'Welcome back!' : 'Join the revolution.'
+                    )}
+                </p>
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div>
                         <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Email</label>
@@ -858,6 +902,8 @@ const PostCard = ({ post, onReact, currentUser, onRefresh, onSponsor }: { post: 
     const [showComments, setShowComments] = useState(false);
     const [comments, setComments] = useState<Comment[]>([]);
     const [newComment, setNewComment] = useState('');
+    // Local state for optimistic view count updates
+    const [localViews, setLocalViews] = useState(post.views);
 
     // Extract first URL for preview
     const urlMatch = post.content.match(/(https?:\/\/[^\s]+)/);
@@ -890,6 +936,8 @@ const PostCard = ({ post, onReact, currentUser, onRefresh, onSponsor }: { post: 
             if (!sessionStorage.getItem(key)) {
                 mockDB.incrementPostView(post.id);
                 sessionStorage.setItem(key, 'true');
+                // Optimistically update view count in UI
+                setLocalViews(v => v + 1);
             }
         }
 
@@ -1062,7 +1110,7 @@ const PostCard = ({ post, onReact, currentUser, onRefresh, onSponsor }: { post: 
                 <div className="flex gap-4 text-xs text-slate-500 font-medium">
                     <button onClick={() => setShowComments(!showComments)} className="hover:text-white flex items-center gap-1"><ChatBubbleIcon /> {showComments ? 'Hide' : 'Comments'}</button>
                     <button onClick={handleShare} className="hover:text-white flex items-center gap-1"><ShareIcon /> Share</button>
-                    <span className="flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg> {post.views}</span>
+                    <span className="flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg> {localViews}</span>
                 </div>
             </div>
 
@@ -1336,6 +1384,7 @@ const Profile = ({ currentUser }: { currentUser: User }) => {
   const [dmEnabled, setDmEnabled] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
   const [followerCount, setFollowerCount] = useState(0);
+  const [referralMessage, setReferralMessage] = useState('');
   const navigate = useNavigate();
 
   // If no params, default to current user (should redirect really, but handling it here is fine)
@@ -1364,6 +1413,7 @@ const Profile = ({ currentUser }: { currentUser: User }) => {
         
         const s = await mockDB.getSettings();
         setDmEnabled(s.enableDirectMessaging);
+        setReferralMessage(s.referralMessage || "Invite friends! If they sign up via your link, you'll automatically follow each other.");
     };
     loadProfile();
   }, [targetId, currentUser.id, trigger]);
@@ -1446,9 +1496,14 @@ const Profile = ({ currentUser }: { currentUser: User }) => {
              )}
            </div>
            
-           <div className="flex items-center justify-center gap-2 mt-4">
-               <h2 className="text-2xl font-bold text-white">{profileUser.name || profileUser.email.split('@')[0]}</h2>
-               <button onClick={copyProfileLink} className="text-slate-500 hover:text-white transition" title="Copy Link"><ShareIcon /></button>
+           <div className="flex flex-col items-center justify-center mt-4">
+               <div className="flex items-center gap-2">
+                   <h2 className="text-2xl font-bold text-white">{profileUser.name || profileUser.email.split('@')[0]}</h2>
+                   <button onClick={copyProfileLink} className="text-slate-500 hover:text-white transition" title="Copy Link"><ShareIcon /></button>
+               </div>
+               {isOwnProfile && (
+                   <p className="text-[10px] text-green-400 mt-1 max-w-xs">{referralMessage}</p>
+               )}
            </div>
            
            {/* Email Privacy Logic */}
@@ -1763,6 +1818,10 @@ const AdminPanel = () => {
                 <div>
                     <label className="block text-sm font-semibold text-slate-300 mb-2">Advertiser Cost (USD per 1k views)</label>
                     <input type="number" value={draftSettings.sponsorAdPricePer1kViews || 1.0} onChange={(e) => setDraftSettings({ ...draftSettings, sponsorAdPricePer1kViews: parseFloat(e.target.value) })} className="w-full bg-slate-900 border border-slate-600 p-3 rounded-xl text-white focus:border-indigo-500 outline-none" />
+                </div>
+                <div>
+                    <label className="block text-sm font-semibold text-slate-300 mb-2">Referral Message (Under Link)</label>
+                    <input type="text" value={draftSettings.referralMessage || ''} onChange={(e) => setDraftSettings({ ...draftSettings, referralMessage: e.target.value })} className="w-full bg-slate-900 border border-slate-600 p-3 rounded-xl text-white focus:border-indigo-500 outline-none" placeholder="Invite friends..." />
                 </div>
                 <div className="h-px bg-slate-700 my-4"></div>
                 <div>
