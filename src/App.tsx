@@ -5,7 +5,6 @@ import {
   User, Post, UserRole, NetworkType, Transaction, SystemSettings, Comment, Notification, Conversation, Message 
 } from './types';
 import { mockDB } from './services/mockDb';
-import { generateSamplePosts } from './services/geminiService';
 
 // --- SQL Modal for Supabase Setup ---
 const SupabaseSetup = ({ onClose }: { onClose: () => void }) => {
@@ -393,7 +392,7 @@ const Navbar = ({ user, onLogout, siteName }: { user: User; onLogout: () => void
             </div>
 
             {/* Profile */}
-            <Link to="/profile">
+            <Link to={`/profile/${user.id}`}>
                 <img 
                     src={user.avatarUrl} 
                     alt="Profile" 
@@ -426,7 +425,7 @@ const Navbar = ({ user, onLogout, siteName }: { user: User; onLogout: () => void
               <Link to="/" onClick={() => setMobileMenuOpen(false)} className="block text-indigo-400 font-bold py-2 border-b border-slate-800 flex items-center gap-2">
                   <HomeIcon /> News Feed
               </Link>
-              <Link to="/profile" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-3 p-2 bg-slate-800 rounded-lg">
+              <Link to={`/profile/${user.id}`} onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-3 p-2 bg-slate-800 rounded-lg">
                   <img src={user.avatarUrl} className="w-10 h-10 rounded-full" alt=""/>
                   <div>
                       <p className="text-white font-bold">{user.name}</p>
@@ -457,6 +456,7 @@ const MessagesPage = ({ user }: { user: User }) => {
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(true);
     const scrollRef = useRef<HTMLDivElement>(null);
+    const params = useParams(); // To possibly support /messages/:userId
 
     useEffect(() => {
         loadConversations();
@@ -781,7 +781,7 @@ const PostCard = ({ post, onReact, currentUser, onRefresh }: { post: Post; onRea
             )}
             
             <div className="flex items-center justify-between mb-4">
-                <Link to={`/profile`} className="flex items-center gap-3">
+                <Link to={`/profile/${post.userId}`} className="flex items-center gap-3">
                     <img src={post.userAvatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${post.userId}`} className="w-10 h-10 rounded-full bg-slate-700" alt="" />
                     <div>
                         <h3 className="font-bold text-white text-sm">{post.userEmail.split('@')[0]}</h3>
@@ -928,20 +928,10 @@ const Feed = ({ currentUser }: { currentUser: User }) => {
         }
     };
 
-    const handleGenerate = async () => {
-        setLoading(true);
-        const newPosts = await generateSamplePosts();
-        for (const content of newPosts) {
-            await mockDB.createPost(currentUser.id, content, content.startsWith('http') ? 'link' : 'text');
-        }
-        await load();
-    };
-
     return (
         <div className="max-w-2xl mx-auto py-6 px-4">
             <div className="mb-6 flex gap-2 overflow-x-auto pb-2">
-                <button onClick={handleGenerate} className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-4 py-2 rounded-full font-bold text-sm shadow-lg whitespace-nowrap">✨ AI Generate Posts</button>
-                <Link to="/profile" className="bg-slate-800 text-slate-300 px-4 py-2 rounded-full font-bold text-sm border border-slate-700 hover:bg-slate-700 whitespace-nowrap">My Posts</Link>
+                <Link to={`/profile/${currentUser.id}`} className="bg-slate-800 text-slate-300 px-4 py-2 rounded-full font-bold text-sm border border-slate-700 hover:bg-slate-700 whitespace-nowrap">My Posts</Link>
             </div>
             
             <div className="mb-8 bg-slate-800 p-4 rounded-2xl border border-slate-700 flex gap-3">
@@ -1140,40 +1130,46 @@ const EditUserModal = ({ user, onClose, onSave }: { user: User, onClose: () => v
     );
 };
 
-// Updated Profile Component to include "Message" button
-const Profile = ({ user }: { user: User }) => {
+// Updated Profile Component to handle routing by userId and view other profiles
+const Profile = ({ currentUser }: { currentUser: User }) => {
+  const { userId } = useParams();
+  const [profileUser, setProfileUser] = useState<User | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
   const [trigger, setTrigger] = useState(0);
   const [sponsorPost, setSponsorPost] = useState<Post | null>(null);
   const [dmEnabled, setDmEnabled] = useState(false);
   const navigate = useNavigate();
 
-  // We need to fetch the profile of the user we are VIEWING, not just logged in user
-  // BUT currently App.tsx only routes /profile to the logged in user.
-  // To support viewing others, we should have a route /profile/:id.
-  // For this request, I will assume /profile is strictly "My Profile", 
-  // so no Message button needed here.
-  // However, I will add logic for a hypothetical "Other User Profile" or just assume this is it.
-
-  const loadPosts = async () => {
-    const p = await mockDB.getUserPosts(user.id);
-    setPosts(p);
-  };
+  // If no params, default to current user (should redirect really, but handling it here is fine)
+  const targetId = userId || currentUser.id;
+  const isOwnProfile = targetId === currentUser.id;
 
   useEffect(() => {
-    loadPosts();
-    mockDB.getSettings().then(s => setDmEnabled(s.enableDirectMessaging));
-  }, [user.id, trigger]);
+    const loadProfile = async () => {
+        if (isOwnProfile) {
+            setProfileUser(currentUser);
+        } else {
+            const u = await mockDB.getUserProfile(targetId);
+            setProfileUser(u);
+        }
+        const p = await mockDB.getUserPosts(targetId);
+        setPosts(p);
+        
+        const s = await mockDB.getSettings();
+        setDmEnabled(s.enableDirectMessaging);
+    };
+    loadProfile();
+  }, [targetId, currentUser, trigger]);
 
-  // ... (existing image upload, sponsor logic) ...
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!isOwnProfile) return;
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
       reader.onloadend = async () => {
         const base64String = reader.result as string;
         try {
-            await mockDB.updateUserAvatar(user.id, base64String);
+            await mockDB.updateUserAvatar(currentUser.id, base64String);
             window.location.reload(); 
         } catch(e:any) {
             alert("Upload failed: " + e.message);
@@ -1195,12 +1191,15 @@ const Profile = ({ user }: { user: User }) => {
     }
   };
 
+  // If loading profile failed or user doesn't exist
+  if (!profileUser) return <div className="p-10 text-center text-slate-500">Loading Profile...</div>;
+
   return (
     <div className="max-w-2xl mx-auto py-8 px-4">
       {sponsorPost && (
         <SponsorModal 
           post={sponsorPost} 
-          userBalance={user.balance} 
+          userBalance={currentUser.balance} 
           onClose={() => setSponsorPost(null)} 
           onConfirm={confirmSponsor} 
         />
@@ -1210,26 +1209,38 @@ const Profile = ({ user }: { user: User }) => {
         <div className="absolute top-0 left-0 w-full h-32 bg-gradient-to-r from-indigo-900 to-purple-900 opacity-50"></div>
         <div className="relative z-10 mt-12">
            <div className="relative inline-block group">
-             <img src={user.avatarUrl} className="w-32 h-32 rounded-full border-4 border-slate-800 bg-slate-700 object-cover shadow-xl" alt="Profile" />
-             <label className="absolute bottom-1 right-1 bg-indigo-600 p-2 rounded-full cursor-pointer hover:bg-indigo-500 transition shadow-lg hover:scale-105">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 text-white">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
-                </svg>
-               <input type="file" className="hidden" accept="image/*" onChange={handleImageUpload} />
-             </label>
+             <img src={profileUser.avatarUrl} className="w-32 h-32 rounded-full border-4 border-slate-800 bg-slate-700 object-cover shadow-xl" alt="Profile" />
+             {isOwnProfile && (
+                <label className="absolute bottom-1 right-1 bg-indigo-600 p-2 rounded-full cursor-pointer hover:bg-indigo-500 transition shadow-lg hover:scale-105">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 text-white">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+                    </svg>
+                    <input type="file" className="hidden" accept="image/*" onChange={handleImageUpload} />
+                </label>
+             )}
            </div>
-           <h2 className="text-2xl font-bold text-white mt-4">{user.name || user.email.split('@')[0]}</h2>
-           <p className="text-slate-400 text-sm font-medium">{user.email}</p>
+           <h2 className="text-2xl font-bold text-white mt-4">{profileUser.name || profileUser.email.split('@')[0]}</h2>
+           <p className="text-slate-400 text-sm font-medium">{profileUser.email}</p>
            
+           {!isOwnProfile && dmEnabled && (
+                <div className="mt-4">
+                     <Link to="/messages" className="bg-indigo-600 text-white px-4 py-2 rounded-full text-sm font-bold hover:bg-indigo-500 transition inline-flex items-center gap-2">
+                        <ChatIcon /> Message
+                     </Link>
+                </div>
+           )}
+
            <div className="mt-8 flex justify-center divide-x divide-slate-700">
               <div className="px-8 text-center">
                  <div className="text-2xl font-black text-white">{posts.length}</div>
                  <div className="text-xs text-slate-500 uppercase font-bold tracking-wider mt-1">Posts</div>
               </div>
-              <div className="px-8 text-center">
-                 <div className="text-2xl font-black text-green-400">${user.balance.toFixed(2)}</div>
-                 <div className="text-xs text-slate-500 uppercase font-bold tracking-wider mt-1">Wallet</div>
-              </div>
+              {isOwnProfile && (
+                <div className="px-8 text-center">
+                    <div className="text-2xl font-black text-green-400">${profileUser.balance.toFixed(2)}</div>
+                    <div className="text-xs text-slate-500 uppercase font-bold tracking-wider mt-1">Wallet</div>
+                </div>
+              )}
            </div>
         </div>
       </div>
@@ -1239,8 +1250,8 @@ const Profile = ({ user }: { user: User }) => {
         {posts.length === 0 ? <p className="text-slate-500 text-center py-10 bg-slate-800/50 rounded-xl border border-slate-800 border-dashed">No posts yet.</p> : (
             posts.map(p => (
             <div key={p.id} className="relative group">
-                <PostCard post={p} onReact={() => {}} currentUser={user} onRefresh={loadPosts} />
-                {!p.sponsored && (
+                <PostCard post={p} onReact={() => {}} currentUser={currentUser} onRefresh={() => setTrigger(t => t+1)} />
+                {!p.sponsored && isOwnProfile && (
                 <button 
                     onClick={() => setSponsorPost(p)} 
                     className="absolute top-5 right-28 text-xs font-bold bg-white text-indigo-900 px-3 py-1.5 rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-all hover:scale-105 transform translate-y-1 group-hover:translate-y-0"
@@ -1524,7 +1535,8 @@ const App = () => {
             <Navbar user={user} onLogout={handleLogout} siteName={siteName} />
             <Routes>
                 <Route path="/" element={<Feed currentUser={user} />} />
-                <Route path="/profile" element={<Profile user={user} />} />
+                <Route path="/profile/:userId" element={<Profile currentUser={user} />} />
+                <Route path="/profile" element={<Navigate to={`/profile/${user.id}`} replace />} />
                 <Route path="/wallet" element={<Wallet user={user} />} />
                 <Route path="/advertiser" element={<AdvertiserPanel user={user} />} />
                 <Route path="/messages" element={<MessagesPage user={user} />} />
