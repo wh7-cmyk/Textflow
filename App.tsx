@@ -27,6 +27,19 @@ create table if not exists public.profiles (
   created_at timestamp with time zone default timezone('utc'::text, now())
 );
 
+create table if not exists public.settings (
+  id int primary key default 1,
+  site_name text default 'TextFlow',
+  ad_cost_per_100k_views numeric default 0.1,
+  sponsor_ad_price_per_1k_views numeric default 1.0,
+  min_withdraw numeric default 50,
+  admin_wallet_address text default '0xAdminWallet...',
+  about_content text default 'About Us content goes here...',
+  policy_content text default 'Privacy Policy goes here...',
+  enable_direct_messaging boolean default true,
+  check (id = 1) -- Ensure only one settings row
+);
+
 create table if not exists public.posts (
   id uuid default uuid_generate_v4() primary key,
   user_id uuid references public.profiles(id),
@@ -97,6 +110,18 @@ drop policy if exists "Users can update own profile" on public.profiles;
 create policy "Users can update own profile" on public.profiles for update using (auth.uid() = id);
 drop policy if exists "Admins can update any profile" on public.profiles;
 create policy "Admins can update any profile" on public.profiles for update using (
+  exists (select 1 from public.profiles where id = auth.uid() and role = 'ADMIN')
+);
+
+alter table public.settings enable row level security;
+drop policy if exists "Public settings are viewable by everyone" on public.settings;
+create policy "Public settings are viewable by everyone" on public.settings for select using (true);
+drop policy if exists "Admins can update settings" on public.settings;
+create policy "Admins can update settings" on public.settings for update using (
+  exists (select 1 from public.profiles where id = auth.uid() and role = 'ADMIN')
+);
+drop policy if exists "Admins can insert settings" on public.settings;
+create policy "Admins can insert settings" on public.settings for insert with check (
   exists (select 1 from public.profiles where id = auth.uid() and role = 'ADMIN')
 );
 
@@ -180,7 +205,12 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
 
--- 5. Refresh Schema Cache
+-- 5. Insert Default Settings (Safe Insert)
+insert into public.settings (id, site_name, enable_direct_messaging) 
+values (1, 'TextFlow', true)
+on conflict (id) do nothing;
+
+-- 6. Refresh Schema Cache
 NOTIFY pgrst, 'reload config';
   `;
 
@@ -192,7 +222,7 @@ NOTIFY pgrst, 'reload config';
             <p>1. Copy the SQL code below.</p>
             <p>2. Run it in your Supabase SQL Editor.</p>
             <p className="text-green-400 font-bold bg-green-400/10 p-2 rounded border border-green-400/30">
-               SAFE MODE: This script will NOT delete your existing users or posts. It only adds new features (Messaging, Notifications).
+               SAFE MODE: This script will NOT delete your existing users or posts. It adds the 'settings' table.
             </p>
         </div>
         <div className="bg-slate-950 p-4 rounded-lg border border-slate-700 mb-4 relative group">
@@ -301,6 +331,7 @@ const CheckIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" fill="none" vie
 const PaperAirplaneIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 -rotate-45 translate-x-1"><path strokeLinecap="round" strokeLinejoin="round" d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5" /></svg>);
 const UserPlusIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0ZM3.75 15a2.25 2.25 0 0 1 2.25-2.25h2.996a2.25 2.25 0 0 1 2.25 2.25 1.5 1.5 0 0 1 1.5 1.5v3.326a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V16.5a1.5 1.5 0 0 1 1.5-1.5Z" /></svg>);
 const UserMinusIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M22 10.5h-6m-2.25-4.125a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0ZM3.75 15a2.25 2.25 0 0 1 2.25-2.25h2.996a2.25 2.25 0 0 1 2.25 2.25 1.5 1.5 0 0 1 1.5 1.5v3.326a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V16.5a1.5 1.5 0 0 1 1.5-1.5Z" /></svg>);
+
 
 // --- Navbar & Mobile Menu ---
 
@@ -480,6 +511,7 @@ const MessagesPage = ({ user }: { user: User }) => {
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(true);
     const scrollRef = useRef<HTMLDivElement>(null);
+    const params = useParams(); // To possibly support /messages/:userId
 
     useEffect(() => {
         loadConversations();
@@ -607,6 +639,7 @@ const MessagesPage = ({ user }: { user: User }) => {
     );
 };
 
+// --- User Stats Page ---
 const UserStats = ({ user }: { user: User }) => {
     return (
         <div className="max-w-2xl mx-auto py-8 px-4">
@@ -643,6 +676,8 @@ const UserStats = ({ user }: { user: User }) => {
         </div>
     );
 };
+
+// --- Page Components ---
 
 const AboutPage = () => {
     const [content, setContent] = useState('');
@@ -1233,11 +1268,9 @@ const Profile = ({ currentUser }: { currentUser: User }) => {
   const [trigger, setTrigger] = useState(0);
   const [sponsorPost, setSponsorPost] = useState<Post | null>(null);
   const [dmEnabled, setDmEnabled] = useState(false);
-  const [isFollowing, setIsFollowing] = useState(false);
-  const [followerCount, setFollowerCount] = useState(0);
   const navigate = useNavigate();
 
-  // If no params, default to current user
+  // If no params, default to current user (should redirect really, but handling it here is fine)
   const targetId = userId || currentUser.id;
   const isOwnProfile = targetId === currentUser.id;
 
@@ -1246,20 +1279,12 @@ const Profile = ({ currentUser }: { currentUser: User }) => {
         // Reset state when switching profiles
         setProfileUser(null);
         setPosts([]);
-        setIsFollowing(false);
-        setFollowerCount(0);
 
         if (isOwnProfile) {
             setProfileUser(currentUser);
-            // Fetch own follower count (private)
-            const count = await mockDB.getMyFollowerCount(currentUser.id);
-            setFollowerCount(count);
         } else {
             const u = await mockDB.getUserProfile(targetId);
             setProfileUser(u);
-            // Check if I follow them
-            const following = await mockDB.getFollowStatus(targetId, currentUser.id);
-            setIsFollowing(following);
         }
         const p = await mockDB.getUserPosts(targetId);
         setPosts(p);
@@ -1300,20 +1325,6 @@ const Profile = ({ currentUser }: { currentUser: User }) => {
     }
   };
 
-  const handleFollowToggle = async () => {
-      try {
-          if (isFollowing) {
-              await mockDB.unfollowUser(targetId, currentUser.id);
-              setIsFollowing(false);
-          } else {
-              await mockDB.followUser(targetId, currentUser.id);
-              setIsFollowing(true);
-          }
-      } catch (e: any) {
-          alert("Action failed: " + e.message);
-      }
-  };
-
   // If loading profile failed or user doesn't exist
   if (!profileUser) return <div className="p-10 text-center text-slate-500">Loading Profile...</div>;
 
@@ -1343,42 +1354,13 @@ const Profile = ({ currentUser }: { currentUser: User }) => {
              )}
            </div>
            <h2 className="text-2xl font-bold text-white mt-4">{profileUser.name || profileUser.email.split('@')[0]}</h2>
-           {/* Hide email for others, show for owner */}
-           {isOwnProfile && <p className="text-slate-400 text-sm font-medium">{profileUser.email}</p>}
+           <p className="text-slate-400 text-sm font-medium">{profileUser.email}</p>
            
-           {isOwnProfile ? (
-               <div className="flex flex-col items-center justify-center gap-2 mt-4">
-                 <div className="flex gap-2 mt-2">
-                     <button 
-                        onClick={() => {
-                            const url = `${window.location.origin}/#/profile/${profileUser.id}`;
-                            navigator.clipboard.writeText(url);
-                            alert("Profile Link Copied!");
-                        }} 
-                        className="bg-slate-700 hover:bg-slate-600 text-white px-4 py-1.5 rounded-full text-xs font-bold transition flex items-center gap-1"
-                     >
-                        <ShareIcon /> Share Profile
-                     </button>
-                     <Link to="/stats" className="bg-indigo-900/50 hover:bg-indigo-800 text-indigo-200 border border-indigo-500/30 px-4 py-1.5 rounded-full text-xs font-bold transition flex items-center gap-1">
-                        <PresentationChartLineIcon /> Statistics
+           {!isOwnProfile && dmEnabled && (
+                <div className="mt-4">
+                     <Link to="/messages" className="bg-indigo-600 text-white px-4 py-2 rounded-full text-sm font-bold hover:bg-indigo-500 transition inline-flex items-center gap-2">
+                        <ChatIcon /> Message
                      </Link>
-                 </div>
-               </div>
-           ) : (
-                <div className="mt-4 flex justify-center gap-2">
-                    {/* Follow Button */}
-                    <button 
-                        onClick={handleFollowToggle} 
-                        className={`px-4 py-2 rounded-full text-sm font-bold transition inline-flex items-center gap-2 ${isFollowing ? 'bg-slate-700 hover:bg-red-500/80 text-white' : 'bg-white text-indigo-900 hover:bg-indigo-50'}`}
-                    >
-                        {isFollowing ? <><UserMinusIcon /> Unfollow</> : <><UserPlusIcon /> Follow</>}
-                    </button>
-
-                    {dmEnabled && (
-                        <Link to="/messages" className="bg-indigo-600 text-white px-4 py-2 rounded-full text-sm font-bold hover:bg-indigo-500 transition inline-flex items-center gap-2">
-                            <ChatIcon /> Message
-                        </Link>
-                    )}
                 </div>
            )}
 
@@ -1388,16 +1370,10 @@ const Profile = ({ currentUser }: { currentUser: User }) => {
                  <div className="text-xs text-slate-500 uppercase font-bold tracking-wider mt-1">Posts</div>
               </div>
               {isOwnProfile && (
-                  <>
-                    <div className="px-8 text-center">
-                        <div className="text-2xl font-black text-white">{followerCount}</div>
-                        <div className="text-xs text-slate-500 uppercase font-bold tracking-wider mt-1">Followers</div>
-                    </div>
-                    <div className="px-8 text-center">
-                        <div className="text-2xl font-black text-green-400">${profileUser.balance.toFixed(2)}</div>
-                        <div className="text-xs text-slate-500 uppercase font-bold tracking-wider mt-1">Wallet</div>
-                    </div>
-                  </>
+                <div className="px-8 text-center">
+                    <div className="text-2xl font-black text-green-400">${profileUser.balance.toFixed(2)}</div>
+                    <div className="text-xs text-slate-500 uppercase font-bold tracking-wider mt-1">Wallet</div>
+                </div>
               )}
            </div>
         </div>
@@ -1712,4 +1688,3 @@ const App = () => {
 };
 
 export default App;
-    

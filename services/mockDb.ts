@@ -20,11 +20,33 @@ class DBService {
   }
 
   private async loadSettings() {
-    // In a real app, settings would be in a DB table. For now we use local default or localStorage
-    const saved = localStorage.getItem('tf_settings');
-    if (saved) {
-        // Merge saved settings with defaults to ensure new keys exist
-        this.settings = { ...this.settings, ...JSON.parse(saved) };
+    try {
+        const { data, error } = await supabase.from('settings').select('*').single();
+        if (data && !error) {
+            // Map snake_case DB columns to camelCase TS interface
+            this.settings = {
+                siteName: data.site_name || "TextFlow",
+                adCostPer100kViews: Number(data.ad_cost_per_100k_views) || 0.1,
+                sponsorAdPricePer1kViews: Number(data.sponsor_ad_price_per_1k_views) || 1.0,
+                minWithdraw: Number(data.min_withdraw) || 50,
+                adminWalletAddress: data.admin_wallet_address || '0x...',
+                aboutContent: data.about_content || '',
+                policyContent: data.policy_content || '',
+                enableDirectMessaging: data.enable_direct_messaging ?? true,
+            };
+        } else if (error) {
+            // Handle specific errors gracefully
+            if (error.code === 'PGRST116') {
+                 // Row not found, keep defaults
+            } else if (error.code === '42P01' || error.message.includes('does not exist') || error.message.includes('schema cache')) {
+                 // Table missing, likely first run. Keep defaults and suppress noisy error.
+                 console.warn("Settings table not found in DB. Using default settings.");
+            } else {
+                 console.error("Failed to load settings from DB:", error.message);
+            }
+        }
+    } catch (e) {
+        console.error("Settings load exception", e);
     }
   }
 
@@ -367,6 +389,9 @@ class DBService {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error("Not logged in");
 
+    // Ensure we have latest settings for price calculation
+    await this.loadSettings();
+
     const profile = await this.getUserProfile(user.id);
     if (profile.balance < amount) throw new Error("Insufficient balance");
 
@@ -672,15 +697,42 @@ class DBService {
     if (error) throw new Error(error.message);
   }
 
-  // --- Admin ---
+  // --- Admin Settings ---
 
   async getSettings(): Promise<SystemSettings> {
+    await this.loadSettings(); // Ensure fresh
     return this.settings;
   }
 
   async updateSettings(newSettings: Partial<SystemSettings>): Promise<void> {
-    this.settings = { ...this.settings, ...newSettings };
-    localStorage.setItem('tf_settings', JSON.stringify(this.settings));
+    // 1. Map camelCase to snake_case for DB
+    const dbPayload: any = {};
+    if (newSettings.siteName !== undefined) dbPayload.site_name = newSettings.siteName;
+    if (newSettings.adCostPer100kViews !== undefined) dbPayload.ad_cost_per_100k_views = newSettings.adCostPer100kViews;
+    if (newSettings.sponsorAdPricePer1kViews !== undefined) dbPayload.sponsor_ad_price_per_1k_views = newSettings.sponsorAdPricePer1kViews;
+    if (newSettings.minWithdraw !== undefined) dbPayload.min_withdraw = newSettings.minWithdraw;
+    if (newSettings.adminWalletAddress !== undefined) dbPayload.admin_wallet_address = newSettings.adminWalletAddress;
+    if (newSettings.aboutContent !== undefined) dbPayload.about_content = newSettings.aboutContent;
+    if (newSettings.policyContent !== undefined) dbPayload.policy_content = newSettings.policyContent;
+    if (newSettings.enableDirectMessaging !== undefined) dbPayload.enable_direct_messaging = newSettings.enableDirectMessaging;
+
+    // 2. Update DB
+    const { error } = await supabase.from('settings').update(dbPayload).eq('id', 1);
+
+    // 3. Update local cache
+    if (!error) {
+        this.settings = { ...this.settings, ...newSettings };
+    } else {
+        // Fallback: If row 1 doesn't exist, try insert
+        if (error.code === 'PGRST116' || error.message.includes('0 rows')) {
+             await supabase.from('settings').insert([{ id: 1, ...dbPayload }]);
+             this.settings = { ...this.settings, ...newSettings };
+        } else if (error.code === '42P01' || error.message.includes('does not exist')) {
+             throw new Error("Settings table does not exist. Please go to System tab and run the Database Setup SQL.");
+        } else {
+            throw new Error(error.message);
+        }
+    }
   }
 
   async getPendingWithdrawals(): Promise<Transaction[]> {
