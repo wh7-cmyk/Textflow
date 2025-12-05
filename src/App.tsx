@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useRef } from 'react';
 import { HashRouter, Routes, Route, Navigate, Link, useNavigate, useParams } from 'react-router-dom';
 import { 
@@ -92,6 +91,8 @@ create table if not exists public.transactions (
 create table if not exists public.settings (
   id int primary key default 1,
   site_name text default 'TextFlow',
+  site_logo_url text,
+  site_background_url text,
   ad_cost_per_100k_views numeric default 0.1,
   sponsor_ad_price_per_1k_views numeric default 1.0,
   min_withdraw numeric default 50,
@@ -103,11 +104,11 @@ create table if not exists public.settings (
 );
 
 -- 2a. Add Columns to Existing Tables (Fix for "missing column" errors)
+alter table public.settings add column if not exists site_logo_url text;
+alter table public.settings add column if not exists site_background_url text;
 alter table public.settings add column if not exists sponsor_ad_price_per_1k_views numeric default 1.0;
 alter table public.settings add column if not exists enable_direct_messaging boolean default true;
 alter table public.profiles add column if not exists email_public boolean default true;
-alter table public.settings add column if not exists site_logo_url text;
-alter table public.settings add column if not exists site_background_url text;
 
 -- 3. Update Permissions (RLS)
 
@@ -355,7 +356,7 @@ const UserMinusIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" fill="none"
 
 // --- Navbar & Mobile Menu ---
 
-const Navbar = ({ user, onLogout, siteName }: { user: User; onLogout: () => void; siteName: string }) => {
+const Navbar = ({ user, onLogout, siteName, logo }: { user: User; onLogout: () => void; siteName: string; logo?: string }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showNotif, setShowNotif] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -403,7 +404,10 @@ const Navbar = ({ user, onLogout, siteName }: { user: User; onLogout: () => void
     <nav className="sticky top-0 z-40 w-full bg-slate-900/90 border-b border-slate-800 backdrop-blur-md">
       <div className="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between">
         {/* Logo */}
-        <Link to="/" className="text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400 tracking-tight">{siteName}</Link>
+        <Link to="/" className="flex items-center gap-2">
+            {logo ? <img src={logo} className="h-8 w-auto rounded" alt="Logo" /> : null}
+            <span className="text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400 tracking-tight">{siteName}</span>
+        </Link>
         
         {/* Desktop Menu */}
         <div className="hidden md:flex items-center gap-4">
@@ -659,7 +663,7 @@ const MessagesPage = ({ user }: { user: User }) => {
     );
 };
 
-// --- User Stats Page (Restored) ---
+// --- User Stats Page ---
 const UserStats = ({ user }: { user: User }) => {
     const [posts, setPosts] = useState<Post[]>([]);
     const [settings, setSettings] = useState<SystemSettings | null>(null);
@@ -1313,7 +1317,6 @@ const AdvertiserPanel = ({ user }: { user: User }) => {
     );
 };
 
-// Updated Profile Component to handle routing by userId and view other profiles
 const Profile = ({ currentUser }: { currentUser: User }) => {
   const { userId } = useParams();
   const [profileUser, setProfileUser] = useState<User | null>(null);
