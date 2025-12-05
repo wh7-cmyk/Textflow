@@ -781,10 +781,10 @@ const PostCard = ({ post, onReact, currentUser, onRefresh }: { post: Post; onRea
             )}
             
             <div className="flex items-center justify-between mb-4">
-                <Link to={`/profile/${post.userId}`} className="flex items-center gap-3">
-                    <img src={post.userAvatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${post.userId}`} className="w-10 h-10 rounded-full bg-slate-700" alt="" />
+                <Link to={`/profile/${post.userId}`} className="flex items-center gap-3 group">
+                    <img src={post.userAvatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${post.userId}`} className="w-10 h-10 rounded-full bg-slate-700 transition group-hover:ring-2 group-hover:ring-indigo-500" alt="" />
                     <div>
-                        <h3 className="font-bold text-white text-sm">{post.userEmail.split('@')[0]}</h3>
+                        <h3 className="font-bold text-white text-sm group-hover:text-indigo-400 group-hover:underline transition">{post.userEmail.split('@')[0]}</h3>
                         <p className="text-xs text-slate-500">{new Date(post.createdAt).toLocaleDateString()}</p>
                     </div>
                 </Link>
@@ -1146,6 +1146,10 @@ const Profile = ({ currentUser }: { currentUser: User }) => {
 
   useEffect(() => {
     const loadProfile = async () => {
+        // Reset state when switching profiles
+        setProfileUser(null);
+        setPosts([]);
+
         if (isOwnProfile) {
             setProfileUser(currentUser);
         } else {
@@ -1159,7 +1163,7 @@ const Profile = ({ currentUser }: { currentUser: User }) => {
         setDmEnabled(s.enableDirectMessaging);
     };
     loadProfile();
-  }, [targetId, currentUser, trigger]);
+  }, [targetId, currentUser.id, trigger]);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!isOwnProfile) return;
