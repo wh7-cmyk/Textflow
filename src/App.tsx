@@ -429,21 +429,7 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- 7. Secure Reaction Function (REQUIRED FOR LIKES TO WORK)
-create or replace function public.react_to_post(post_id uuid, reaction_type text)
-returns void as $$
-begin
-  if reaction_type = 'likes' then
-    update public.posts set likes = likes + 1 where id = post_id;
-  elsif reaction_type = 'hearts' then
-    update public.posts set hearts = hearts + 1 where id = post_id;
-  elsif reaction_type = 'hahas' then
-    update public.posts set hahas = hahas + 1 where id = post_id;
-  end if;
-end;
-$$ language plpgsql security definer;
-
--- 8. Referral Function
+-- 7. Referral Function
 create or replace function public.register_referral(new_user_id uuid, referrer_id uuid)
 returns void as $$
 begin
@@ -452,7 +438,7 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- 9. Refresh Schema Cache
+-- 8. Refresh Schema Cache
 notify pgrst,
 'reload config';
   `;
@@ -463,7 +449,7 @@ notify pgrst,
         <h2 className="text-2xl font-bold text-indigo-400 mb-2">🛡️ Database Setup & Update</h2>
         <div className="mb-4 text-slate-300 text-sm space-y-2">
             <p className="bg-yellow-500/20 text-yellow-200 p-2 rounded border border-yellow-500/50">
-               <strong>Action Required:</strong> Copy this SQL and run it in Supabase to fix Like/Heart buttons and View counts.
+               <strong>Action Required:</strong> Run this SQL if you haven't already to set up the View Counter and Referral System.
             </p>
         </div>
         <div className="bg-slate-950 p-4 rounded-lg border border-slate-700 mb-4 relative group">
@@ -560,9 +546,6 @@ const PresentationChartLineIcon = () => (
       <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 0 0 6 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0 1 18 16.5h-2.25m-7.5 0h7.5m-7.5 0-1 3m8.5-3 1 3m0 0 .5 1.5m-.5-1.5h-9.5m0 0-.5 1.5M9 11.25v1.5M12 9v3.75m3-6v6" /></svg>
 );
 
-const HeartIcon = ({ filled }: { filled?: boolean }) => (<svg xmlns="http://www.w3.org/2000/svg" fill={filled ? "currentColor" : "none"} viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={`w-5 h-5 ${filled ? 'text-red-500' : ''}`}><path strokeLinecap="round" strokeLinejoin="round" d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12Z" /></svg>);
-const ThumbUpIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M6.633 10.5c.806 0 1.533-.446 2.031-1.08a9.041 9.041 0 0 1 2.861-2.4c.723-.384 1.35-.956 1.653-1.715a4.498 4.498 0 0 0 .322-1.672V3a.75.75 0 0 1 .75-.75A2.25 2.25 0 0 1 16.5 4.5c0 1.152-.26 2.247-.723 3.218-.266.558.107 1.282.725 1.282h3.126c1.026 0 1.945.694 2.054 1.715.045.422.068.85.068 1.285a11.95 11.95 0 0 1-2.649 7.521c-.388.482-.987.729-1.605.729H13.48c-.483 0-.964-.078-1.423-.23l-3.114-1.04a4.501 4.501 0 0 0-1.423-.23H5.904M14.25 9h2.25M5.904 18.75c.083.205.173.405.27.602.197.4-.078.898-.523.898h-.908c-.889 0-1.713-.518-1.972-1.368a12 12 0 0 1-.521-3.507c0-1.553.295-3.036.831-4.398C3.387 10.203 4.167 9.75 5 9.75h1.053c.472 0 .745.556.5.96a8.958 8.958 0 0 0-1.302 4.665c0 1.194.232 2.333.654 3.375Z" /></svg>);
-const FaceSmileIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M15.182 15.182a4.5 4.5 0 0 1-6.364 0M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0ZM9.75 9.75c0 .414-.168.75-.375.75S9 10.164 9 9.75 9.168 9 9.375 9s.375.336.375.75Zm-.375 0h.008v.015h-.008V9.75Zm5.625 0c0 .414-.168.75-.375.75s-.375-.336-.375-.75.168-.75.375-.75.375.336.375.75Zm-.375 0h.008v.015h-.008V9.75Z" /></svg>);
 const ShareIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.287.696.287 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.935 2.186 2.25 2.25 0 0 0-3.935-2.186Zm0-12.814a2.25 2.25 0 1 0 3.933-1.988 2.25 2.25 0 0 0-3.933 1.988Z" /></svg>);
 const ChatBubbleIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 0 1 .865-.501 48.172 48.172 0 0 0 3.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" /></svg>);
 const ChartBarIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 0 0 6 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0 1 18 16.5h-2.25m-7.5 0h7.5m-7.5 0-1 3m8.5-3 1 3m0 0 .5 1.5m-.5-1.5h-9.5m0 0-.5 1.5M9 11.25v1.5M12 9v3.75m3-6v6" /></svg>);
@@ -1091,7 +1074,7 @@ const EditUserModal = ({ user, onClose, onSave }: { user: User, onClose: () => v
     );
 };
 
-const PostCard = ({ post, onReact, currentUser, onRefresh, onSponsor }: { post: Post; onReact: (id: string, type: any) => void; currentUser: User; onRefresh?: () => void, onSponsor?: (post: Post) => void }) => {
+const PostCard = ({ post, currentUser, onRefresh, onSponsor }: { post: Post; currentUser: User; onRefresh?: () => void, onSponsor?: (post: Post) => void }) => {
     const [showPreview, setShowPreview] = useState(true);
     const [isOwner, setIsOwner] = useState(currentUser.id === post.userId || currentUser.role === UserRole.ADMIN);
     const [isEditing, setIsEditing] = useState(false);
@@ -1100,17 +1083,11 @@ const PostCard = ({ post, onReact, currentUser, onRefresh, onSponsor }: { post: 
     const [comments, setComments] = useState<Comment[]>([]);
     const [newComment, setNewComment] = useState('');
     
-    // Local state for optimistic view count and reactions
+    // Local state for optimistic view count
     const [localViews, setLocalViews] = useState(post.views);
-    const [localReactions, setLocalReactions] = useState({
-        likes: post.likes,
-        hearts: post.hearts,
-        hahas: post.hahas
-    });
 
     // Reset local state when prop updates (e.g. after refresh)
     useEffect(() => {
-        setLocalReactions({ likes: post.likes, hearts: post.hearts, hahas: post.hahas });
         setLocalViews(post.views);
     }, [post]);
 
@@ -1154,20 +1131,6 @@ const PostCard = ({ post, onReact, currentUser, onRefresh, onSponsor }: { post: 
             mockDB.getPostComments(post.id).then(setComments);
         }
     }, [showComments, post.id, isOwner]);
-
-    const handleReact = async (type: 'likes' | 'hearts' | 'hahas') => {
-        // Optimistic Update: Update UI immediately
-        setLocalReactions(prev => ({...prev, [type]: prev[type] + 1}));
-        
-        try {
-            await mockDB.reactToPost(post.id, type, currentUser.id);
-            if (onRefresh) onRefresh();
-        } catch (e) {
-            // Revert if failed
-            setLocalReactions(prev => ({...prev, [type]: prev[type] - 1}));
-            alert("Reaction failed. Please ensure you ran the latest Database SQL.");
-        }
-    };
 
     const handleUpdate = async () => {
         try {
@@ -1315,15 +1278,7 @@ const PostCard = ({ post, onReact, currentUser, onRefresh, onSponsor }: { post: 
 
             <div className="flex items-center justify-between pt-4 border-t border-slate-700/50">
                 <div className="flex gap-4">
-                    <button onClick={() => handleReact('likes')} className="flex items-center gap-1.5 text-slate-400 hover:text-indigo-400 transition group">
-                        <ThumbUpIcon /> <span className="text-xs font-bold">{localReactions.likes}</span>
-                    </button>
-                    <button onClick={() => handleReact('hearts')} className="flex items-center gap-1.5 text-slate-400 hover:text-red-400 transition group">
-                        <HeartIcon /> <span className="text-xs font-bold">{localReactions.hearts}</span>
-                    </button>
-                    <button onClick={() => handleReact('hahas')} className="flex items-center gap-1.5 text-slate-400 hover:text-yellow-400 transition group">
-                        <FaceSmileIcon /> <span className="text-xs font-bold">{localReactions.hahas}</span>
-                    </button>
+                    {/* Reactions removed as requested */}
                 </div>
                 <div className="flex gap-4 text-xs text-slate-500 font-medium">
                     <button onClick={() => setShowComments(!showComments)} className="hover:text-white flex items-center gap-1"><ChatBubbleIcon /> {showComments ? 'Hide' : 'Comments'}</button>
@@ -1459,7 +1414,6 @@ const Feed = ({ currentUser }: { currentUser: User }) => {
                         <PostCard 
                             post={p} 
                             currentUser={currentUser} 
-                            onReact={() => {}} 
                             onRefresh={load} 
                             onSponsor={(post) => setSponsorPost(post)}
                         />
@@ -1500,7 +1454,7 @@ const SinglePost = ({ currentUser }: { currentUser: User }) => {
 
     return (
         <div className="max-w-2xl mx-auto py-8 px-4">
-            <PostCard post={post} currentUser={currentUser} onReact={() => {}} onRefresh={load} />
+            <PostCard post={post} currentUser={currentUser} onRefresh={load} />
             
             <div className="mt-8">
                 <h3 className="font-bold text-white mb-4">Comments</h3>
@@ -1868,7 +1822,6 @@ const Profile = ({ currentUser }: { currentUser: User }) => {
             <div key={p.id} className="relative group">
                 <PostCard 
                     post={p} 
-                    onReact={() => {}} 
                     currentUser={currentUser} 
                     onRefresh={() => setTrigger(t => t+1)} 
                     onSponsor={(post) => setSponsorPost(post)}
