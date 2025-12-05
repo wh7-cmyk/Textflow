@@ -392,7 +392,7 @@ const Navbar = ({ user, onLogout, siteName }: { user: User; onLogout: () => void
             </div>
 
             {/* Profile */}
-            <Link to="/profile">
+            <Link to={`/profile/${user.id}`}>
                 <img 
                     src={user.avatarUrl} 
                     alt="Profile" 
@@ -425,7 +425,7 @@ const Navbar = ({ user, onLogout, siteName }: { user: User; onLogout: () => void
               <Link to="/" onClick={() => setMobileMenuOpen(false)} className="block text-indigo-400 font-bold py-2 border-b border-slate-800 flex items-center gap-2">
                   <HomeIcon /> News Feed
               </Link>
-              <Link to="/profile" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-3 p-2 bg-slate-800 rounded-lg">
+              <Link to={`/profile/${user.id}`} onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-3 p-2 bg-slate-800 rounded-lg">
                   <img src={user.avatarUrl} className="w-10 h-10 rounded-full" alt=""/>
                   <div>
                       <p className="text-white font-bold">{user.name}</p>
@@ -456,6 +456,7 @@ const MessagesPage = ({ user }: { user: User }) => {
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(true);
     const scrollRef = useRef<HTMLDivElement>(null);
+    const params = useParams(); // To possibly support /messages/:userId
 
     useEffect(() => {
         loadConversations();
@@ -659,7 +660,7 @@ const Auth = ({ onLogin, onShowSetup, siteName }: { onLogin: (u: User) => void, 
     );
 };
 
-const PostCard = ({ post, onReact, currentUser, onRefresh }: { post: Post; onReact: (id: string, type: any) => void; currentUser: User; onRefresh?: () => void }) => {
+const PostCard = ({ post, onReact, currentUser, onRefresh, onSponsor }: { post: Post; onReact: (id: string, type: any) => void; currentUser: User; onRefresh?: () => void, onSponsor?: (post: Post) => void }) => {
     const [showPreview, setShowPreview] = useState(true);
     const [isOwner, setIsOwner] = useState(currentUser.id === post.userId);
     const [isEditing, setIsEditing] = useState(false);
@@ -780,15 +781,24 @@ const PostCard = ({ post, onReact, currentUser, onRefresh }: { post: Post; onRea
             )}
             
             <div className="flex items-center justify-between mb-4">
-                <Link to={`/profile`} className="flex items-center gap-3">
-                    <img src={post.userAvatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${post.userId}`} className="w-10 h-10 rounded-full bg-slate-700" alt="" />
+                <Link to={`/profile/${post.userId}`} className="flex items-center gap-3 group">
+                    <img src={post.userAvatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${post.userId}`} className="w-10 h-10 rounded-full bg-slate-700 transition group-hover:ring-2 group-hover:ring-indigo-500" alt="" />
                     <div>
-                        <h3 className="font-bold text-white text-sm">{post.userEmail.split('@')[0]}</h3>
+                        <h3 className="font-bold text-white text-sm group-hover:text-indigo-400 group-hover:underline transition">{post.userEmail.split('@')[0]}</h3>
                         <p className="text-xs text-slate-500">{new Date(post.createdAt).toLocaleDateString()}</p>
                     </div>
                 </Link>
                 {isOwner && (
                     <div className="flex gap-2">
+                        {/* Sponsor Button */}
+                        {!post.sponsored && onSponsor && (
+                            <button 
+                                onClick={() => onSponsor(post)}
+                                className="text-xs font-bold bg-white text-indigo-900 px-3 py-1.5 rounded-full hover:bg-indigo-100 transition mr-2"
+                            >
+                                🚀 Sponsor
+                            </button>
+                        )}
                         {isEditing ? (
                             <>
                                 <button onClick={() => setIsEditing(false)} className="text-red-400 hover:bg-slate-700 p-1 rounded"><XMarkIcon /></button>
@@ -899,6 +909,8 @@ const Feed = ({ currentUser }: { currentUser: User }) => {
     const [loading, setLoading] = useState(true);
     const [newPostContent, setNewPostContent] = useState('');
     const [isPosting, setIsPosting] = useState(false);
+    const [sponsorPost, setSponsorPost] = useState<Post | null>(null);
+    const navigate = useNavigate();
 
     const load = async () => {
         const p = await mockDB.getFeed();
@@ -927,10 +939,30 @@ const Feed = ({ currentUser }: { currentUser: User }) => {
         }
     };
 
+    const confirmSponsor = async (amount: number) => {
+        if (!sponsorPost) return;
+        try {
+          await mockDB.sponsorPost(sponsorPost.id, amount);
+          setSponsorPost(null);
+          load(); // refresh feed to show updated view count / status
+          navigate('/advertiser');
+        } catch (e: any) {
+          alert(e.message);
+        }
+    };
+
     return (
         <div className="max-w-2xl mx-auto py-6 px-4">
+            {sponsorPost && (
+                <SponsorModal 
+                post={sponsorPost} 
+                userBalance={currentUser.balance} 
+                onClose={() => setSponsorPost(null)} 
+                onConfirm={confirmSponsor} 
+                />
+            )}
             <div className="mb-6 flex gap-2 overflow-x-auto pb-2">
-                <Link to="/profile" className="bg-slate-800 text-slate-300 px-4 py-2 rounded-full font-bold text-sm border border-slate-700 hover:bg-slate-700 whitespace-nowrap">My Posts</Link>
+                <Link to={`/profile/${currentUser.id}`} className="bg-slate-800 text-slate-300 px-4 py-2 rounded-full font-bold text-sm border border-slate-700 hover:bg-slate-700 whitespace-nowrap">My Posts</Link>
             </div>
             
             <div className="mb-8 bg-slate-800 p-4 rounded-2xl border border-slate-700 flex gap-3">
@@ -958,7 +990,13 @@ const Feed = ({ currentUser }: { currentUser: User }) => {
             {loading ? <div className="text-center text-slate-500">Loading feed...</div> : (
                 posts.map(p => (
                     <React.Fragment key={p.id}>
-                        <PostCard post={p} currentUser={currentUser} onReact={() => {}} onRefresh={load} />
+                        <PostCard 
+                            post={p} 
+                            currentUser={currentUser} 
+                            onReact={() => {}} 
+                            onRefresh={load} 
+                            onSponsor={(post) => setSponsorPost(post)}
+                        />
                     </React.Fragment>
                 ))
             )}
@@ -1129,40 +1167,56 @@ const EditUserModal = ({ user, onClose, onSave }: { user: User, onClose: () => v
     );
 };
 
-// Updated Profile Component to include "Message" button
-const Profile = ({ user }: { user: User }) => {
+// Updated Profile Component to handle routing by userId and view other profiles
+const Profile = ({ currentUser }: { currentUser: User }) => {
+  const { userId } = useParams();
+  const [profileUser, setProfileUser] = useState<User | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
   const [trigger, setTrigger] = useState(0);
   const [sponsorPost, setSponsorPost] = useState<Post | null>(null);
   const [dmEnabled, setDmEnabled] = useState(false);
   const navigate = useNavigate();
 
-  // We need to fetch the profile of the user we are VIEWING, not just logged in user
-  // BUT currently App.tsx only routes /profile to the logged in user.
-  // To support viewing others, we should have a route /profile/:id.
-  // For this request, I will assume /profile is strictly "My Profile", 
-  // so no Message button needed here.
-  // However, I will add logic for a hypothetical "Other User Profile" or just assume this is it.
+  // If no params, default to current user (redirect)
+  useEffect(() => {
+     if (!userId) {
+         navigate(`/profile/${currentUser.id}`, { replace: true });
+     }
+  }, [userId, currentUser.id, navigate]);
 
-  const loadPosts = async () => {
-    const p = await mockDB.getUserPosts(user.id);
-    setPosts(p);
-  };
+  const targetId = userId || currentUser.id;
+  const isOwnProfile = targetId === currentUser.id;
 
   useEffect(() => {
-    loadPosts();
-    mockDB.getSettings().then(s => setDmEnabled(s.enableDirectMessaging));
-  }, [user.id, trigger]);
+    const loadProfile = async () => {
+        // Reset state when switching profiles
+        setProfileUser(null);
+        setPosts([]);
 
-  // ... (existing image upload, sponsor logic) ...
+        if (isOwnProfile) {
+            setProfileUser(currentUser);
+        } else {
+            const u = await mockDB.getUserProfile(targetId);
+            setProfileUser(u);
+        }
+        const p = await mockDB.getUserPosts(targetId);
+        setPosts(p);
+        
+        const s = await mockDB.getSettings();
+        setDmEnabled(s.enableDirectMessaging);
+    };
+    loadProfile();
+  }, [targetId, currentUser.id, trigger, isOwnProfile]); // Depend on isOwnProfile to ensure recalc
+
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!isOwnProfile) return;
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
       reader.onloadend = async () => {
         const base64String = reader.result as string;
         try {
-            await mockDB.updateUserAvatar(user.id, base64String);
+            await mockDB.updateUserAvatar(currentUser.id, base64String);
             window.location.reload(); 
         } catch(e:any) {
             alert("Upload failed: " + e.message);
@@ -1184,12 +1238,21 @@ const Profile = ({ user }: { user: User }) => {
     }
   };
 
+  const handleCopyLink = () => {
+      const url = `${window.location.origin}/#/profile/${targetId}`;
+      navigator.clipboard.writeText(url);
+      alert("Profile Link Copied!");
+  };
+
+  // If loading profile failed or user doesn't exist
+  if (!profileUser) return <div className="p-10 text-center text-slate-500">Loading Profile...</div>;
+
   return (
     <div className="max-w-2xl mx-auto py-8 px-4">
       {sponsorPost && (
         <SponsorModal 
           post={sponsorPost} 
-          userBalance={user.balance} 
+          userBalance={currentUser.balance} 
           onClose={() => setSponsorPost(null)} 
           onConfirm={confirmSponsor} 
         />
@@ -1199,26 +1262,48 @@ const Profile = ({ user }: { user: User }) => {
         <div className="absolute top-0 left-0 w-full h-32 bg-gradient-to-r from-indigo-900 to-purple-900 opacity-50"></div>
         <div className="relative z-10 mt-12">
            <div className="relative inline-block group">
-             <img src={user.avatarUrl} className="w-32 h-32 rounded-full border-4 border-slate-800 bg-slate-700 object-cover shadow-xl" alt="Profile" />
-             <label className="absolute bottom-1 right-1 bg-indigo-600 p-2 rounded-full cursor-pointer hover:bg-indigo-500 transition shadow-lg hover:scale-105">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 text-white">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
-                </svg>
-               <input type="file" className="hidden" accept="image/*" onChange={handleImageUpload} />
-             </label>
+             <img src={profileUser.avatarUrl} className="w-32 h-32 rounded-full border-4 border-slate-800 bg-slate-700 object-cover shadow-xl" alt="Profile" />
+             {isOwnProfile && (
+                <label className="absolute bottom-1 right-1 bg-indigo-600 p-2 rounded-full cursor-pointer hover:bg-indigo-500 transition shadow-lg hover:scale-105">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 text-white">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+                    </svg>
+                    <input type="file" className="hidden" accept="image/*" onChange={handleImageUpload} />
+                </label>
+             )}
            </div>
-           <h2 className="text-2xl font-bold text-white mt-4">{user.name || user.email.split('@')[0]}</h2>
-           <p className="text-slate-400 text-sm font-medium">{user.email}</p>
            
+           <div className="mt-4 flex flex-col items-center">
+                <div className="flex items-center gap-2">
+                    <h2 className="text-2xl font-bold text-white">{profileUser.name || profileUser.email.split('@')[0]}</h2>
+                    <button onClick={handleCopyLink} title="Copy Profile Link" className="text-slate-400 hover:text-white transition">
+                        <ShareIcon />
+                    </button>
+                </div>
+                <p className="text-slate-400 text-sm font-medium">{profileUser.email}</p>
+                {/* Optional: Show URL for clarity */}
+                <p className="text-[10px] text-slate-600 mt-1 select-all">{window.location.origin}/#/profile/{profileUser.id}</p>
+           </div>
+           
+           {!isOwnProfile && dmEnabled && (
+                <div className="mt-4">
+                     <Link to="/messages" className="bg-indigo-600 text-white px-4 py-2 rounded-full text-sm font-bold hover:bg-indigo-500 transition inline-flex items-center gap-2">
+                        <ChatIcon /> Message
+                     </Link>
+                </div>
+           )}
+
            <div className="mt-8 flex justify-center divide-x divide-slate-700">
               <div className="px-8 text-center">
                  <div className="text-2xl font-black text-white">{posts.length}</div>
                  <div className="text-xs text-slate-500 uppercase font-bold tracking-wider mt-1">Posts</div>
               </div>
-              <div className="px-8 text-center">
-                 <div className="text-2xl font-black text-green-400">${user.balance.toFixed(2)}</div>
-                 <div className="text-xs text-slate-500 uppercase font-bold tracking-wider mt-1">Wallet</div>
-              </div>
+              {isOwnProfile && (
+                <div className="px-8 text-center">
+                    <div className="text-2xl font-black text-green-400">${profileUser.balance.toFixed(2)}</div>
+                    <div className="text-xs text-slate-500 uppercase font-bold tracking-wider mt-1">Wallet</div>
+                </div>
+              )}
            </div>
         </div>
       </div>
@@ -1228,15 +1313,13 @@ const Profile = ({ user }: { user: User }) => {
         {posts.length === 0 ? <p className="text-slate-500 text-center py-10 bg-slate-800/50 rounded-xl border border-slate-800 border-dashed">No posts yet.</p> : (
             posts.map(p => (
             <div key={p.id} className="relative group">
-                <PostCard post={p} onReact={() => {}} currentUser={user} onRefresh={loadPosts} />
-                {!p.sponsored && (
-                <button 
-                    onClick={() => setSponsorPost(p)} 
-                    className="absolute top-5 right-14 text-xs font-bold bg-white text-indigo-900 px-3 py-1.5 rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-all hover:scale-105 transform translate-y-1 group-hover:translate-y-0"
-                >
-                    🚀 Sponsor
-                </button>
-                )}
+                <PostCard 
+                    post={p} 
+                    onReact={() => {}} 
+                    currentUser={currentUser} 
+                    onRefresh={() => setTrigger(t => t+1)} 
+                    onSponsor={(post) => setSponsorPost(post)}
+                />
             </div>
             ))
         )}
@@ -1513,7 +1596,13 @@ const App = () => {
             <Navbar user={user} onLogout={handleLogout} siteName={siteName} />
             <Routes>
                 <Route path="/" element={<Feed currentUser={user} />} />
-                <Route path="/profile" element={<Profile user={user} />} />
+                {/* 
+                   Simplified Route Logic:
+                   Always use :userId. If user visits /profile without ID, 
+                   the component itself will redirect to /profile/CURRENT_USER_ID 
+                */}
+                <Route path="/profile/:userId?" element={<Profile currentUser={user} />} />
+                
                 <Route path="/wallet" element={<Wallet user={user} />} />
                 <Route path="/advertiser" element={<AdvertiserPanel user={user} />} />
                 <Route path="/messages" element={<MessagesPage user={user} />} />
