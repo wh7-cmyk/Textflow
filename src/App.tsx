@@ -128,10 +128,13 @@ $$ language plpgsql security definer;
 
 -- 5. RLS Policies (Simplified for Safety)
 alter table public.settings enable row level security;
+drop policy if exists "Public settings" on public.settings;
 create policy "Public settings" on public.settings for select using (true);
+drop policy if exists "Admin update settings" on public.settings;
 create policy "Admin update settings" on public.settings for update using (
   exists (select 1 from public.profiles where id = auth.uid() and role = 'ADMIN')
 );
+drop policy if exists "Admin insert settings" on public.settings;
 create policy "Admin insert settings" on public.settings for insert with check (
   exists (select 1 from public.profiles where id = auth.uid() and role = 'ADMIN')
 );
@@ -433,8 +436,6 @@ const Navbar = ({ user, onLogout, siteName, logo }: { user: User; onLogout: () =
     </nav>
   );
 };
-
-// ... (Other components: MessagesPage, UserStats, AboutPage, PolicyPage, Auth, SponsorModal, EditUserModal, PostCard, Feed, SinglePost, Wallet, AdvertiserPanel, Profile - remain mostly same, just ensuring Profile uses referral message)
 
 // --- Messaging Page ---
 const MessagesPage = ({ user }: { user: User }) => {
@@ -1739,6 +1740,19 @@ const AdminPanel = () => {
                     />
                 </div>
 
+                {/* Referral Section (MOVED UP FOR VISIBILITY) */}
+                <div>
+                    <h3 className="text-white font-bold mb-4 border-b border-slate-700 pb-2">Referral System</h3>
+                    <label className="block text-sm font-semibold text-slate-300 mb-2">Referral Message (Under User's Share Link)</label>
+                    <input 
+                        type="text" 
+                        value={draftSettings.referralMessage || ''} 
+                        onChange={(e) => setDraftSettings({ ...draftSettings, referralMessage: e.target.value })} 
+                        className="w-full bg-slate-900 border border-slate-600 p-3 rounded-xl text-white focus:border-indigo-500 outline-none" 
+                        placeholder="e.g. Invite friends! If they sign up via your link..." 
+                    />
+                </div>
+
                 {/* Appearance Section */}
                 <div>
                     <h3 className="text-white font-bold mb-4 border-b border-slate-700 pb-2">Appearance</h3>
@@ -1802,19 +1816,6 @@ const AdminPanel = () => {
                             <input type="text" value={draftSettings.adminWalletAddress} onChange={(e) => setDraftSettings({ ...draftSettings, adminWalletAddress: e.target.value })} className="w-full bg-slate-900 border border-slate-600 p-3 rounded-xl text-white focus:border-indigo-500 outline-none font-mono text-sm" />
                         </div>
                     </div>
-                </div>
-
-                {/* Referral Section */}
-                <div>
-                    <h3 className="text-white font-bold mb-4 border-b border-slate-700 pb-2">Referral System</h3>
-                    <label className="block text-sm font-semibold text-slate-300 mb-2">Referral Message (Under User's Share Link)</label>
-                    <input 
-                        type="text" 
-                        value={draftSettings.referralMessage || ''} 
-                        onChange={(e) => setDraftSettings({ ...draftSettings, referralMessage: e.target.value })} 
-                        className="w-full bg-slate-900 border border-slate-600 p-3 rounded-xl text-white focus:border-indigo-500 outline-none" 
-                        placeholder="e.g. Invite friends! If they sign up via your link..." 
-                    />
                 </div>
 
                 {/* Content Section */}
