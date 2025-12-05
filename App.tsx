@@ -5,7 +5,6 @@ import {
   User, Post, UserRole, NetworkType, Transaction, SystemSettings, Comment, Notification, Conversation, Message 
 } from './types';
 import { mockDB } from './services/mockDb';
-import { generateSamplePosts } from './services/geminiService';
 
 // --- SQL Modal for Supabase Setup ---
 const SupabaseSetup = ({ onClose }: { onClose: () => void }) => {
@@ -898,6 +897,8 @@ const PostCard = ({ post, onReact, currentUser, onRefresh }: { post: Post; onRea
 const Feed = ({ currentUser }: { currentUser: User }) => {
     const [posts, setPosts] = useState<Post[]>([]);
     const [loading, setLoading] = useState(true);
+    const [newPostContent, setNewPostContent] = useState('');
+    const [isPosting, setIsPosting] = useState(false);
 
     const load = async () => {
         const p = await mockDB.getFeed();
@@ -909,30 +910,49 @@ const Feed = ({ currentUser }: { currentUser: User }) => {
         load();
     }, []);
 
-    const handleGenerate = async () => {
-        setLoading(true);
-        const newPosts = await generateSamplePosts();
-        for (const content of newPosts) {
-            await mockDB.createPost(currentUser.id, content, content.startsWith('http') ? 'link' : 'text');
+    const handleCreatePost = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!newPostContent.trim()) return;
+        setIsPosting(true);
+        try {
+            // Auto-detect type based on content (simple heuristic)
+            const type = newPostContent.match(/^https?:\/\//) ? 'link' : 'text';
+            await mockDB.createPost(currentUser.id, newPostContent, type);
+            setNewPostContent('');
+            await load();
+        } catch (e: any) {
+            alert(e.message);
+        } finally {
+            setIsPosting(false);
         }
-        await load();
     };
 
     return (
         <div className="max-w-2xl mx-auto py-6 px-4">
             <div className="mb-6 flex gap-2 overflow-x-auto pb-2">
-                <button onClick={handleGenerate} className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-4 py-2 rounded-full font-bold text-sm shadow-lg whitespace-nowrap">✨ AI Generate Posts</button>
                 <Link to="/profile" className="bg-slate-800 text-slate-300 px-4 py-2 rounded-full font-bold text-sm border border-slate-700 hover:bg-slate-700 whitespace-nowrap">My Posts</Link>
             </div>
             
             <div className="mb-8 bg-slate-800 p-4 rounded-2xl border border-slate-700 flex gap-3">
                 <img src={currentUser.avatarUrl} className="w-10 h-10 rounded-full bg-slate-700" alt="" />
-                <input 
-                   onClick={() => {/* Navigate or expand to create post */}}
-                   placeholder="What's happening?" 
-                   className="flex-1 bg-slate-900 border-none rounded-xl px-4 text-white focus:ring-0 cursor-pointer"
-                   readOnly
-                />
+                <form onSubmit={handleCreatePost} className="flex-1">
+                    <textarea 
+                       value={newPostContent}
+                       onChange={(e) => setNewPostContent(e.target.value)}
+                       placeholder="What's happening?" 
+                       className="w-full bg-slate-900 border-none rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-indigo-500 resize-none outline-none"
+                       rows={2}
+                    />
+                    <div className="flex justify-end mt-2">
+                        <button 
+                            type="submit" 
+                            disabled={!newPostContent.trim() || isPosting}
+                            className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-4 py-2 rounded-full text-sm disabled:opacity-50 transition"
+                        >
+                            {isPosting ? 'Posting...' : 'Post'}
+                        </button>
+                    </div>
+                </form>
             </div>
 
             {loading ? <div className="text-center text-slate-500">Loading feed...</div> : (
