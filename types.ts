@@ -66,4 +66,38 @@ export interface SystemSettings {
   adminWalletAddress: string;
   aboutContent?: string;
   policyContent?: string;
+  enableDirectMessaging: boolean; // Admin toggle for DMs
+}
+
+export interface Notification {
+  id: string;
+  recipientId: string;
+  actorId?: string; // User who triggered it
+  actorName?: string;
+  actorAvatar?: string;
+  type: 'LIKE' | 'COMMENT' | 'SYSTEM' | 'FOLLOW';
+  message: string;
+  link?: string;
+  isRead: boolean;
+  createdAt: string;
+}
+
+export interface Message {
+  id: string;
+  senderId: string;
+  receiverId: string;
+  content: string;
+  isRead: boolean;
+  createdAt: string;
+}
+
+export interface Conversation {
+  otherUser: {
+    id: string;
+    name: string;
+    avatarUrl: string;
+  };
+  lastMessage: string;
+  unreadCount: number;
+  lastActive: string;
 }

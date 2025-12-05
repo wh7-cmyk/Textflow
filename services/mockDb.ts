@@ -1,5 +1,5 @@
 
-import { User, Post, Transaction, UserRole, SystemSettings, NetworkType, Comment } from '../types';
+import { User, Post, Transaction, UserRole, SystemSettings, NetworkType, Comment, Notification, Message, Conversation } from '../types';
 import { supabase } from './supabaseClient';
 
 // We implement the same interface as the old MockDB for compatibility
@@ -12,6 +12,7 @@ class DBService {
     adminWalletAddress: '0xAdminWalletAddress123456789',
     aboutContent: "## About Us\n\nWe are the premier platform for text-based creators to monetize their thoughts.\n\n### Our Mission\nTo empower writers through crypto micropayments and provide a censorship-resistant platform for sharing ideas.",
     policyContent: "## Privacy Policy\n\n1. **Data Collection**: We collect email and basic profile info to facilitate account management and payments.\n2. **Payments**: All payments are processed via USDT (TRC20/ERC20/BEP20) on the blockchain.\n3. **Content**: We do not allow illegal content. Community guidelines apply to all posts.",
+    enableDirectMessaging: true,
   };
 
   constructor() {
@@ -296,11 +297,22 @@ class DBService {
     }));
   }
 
-  async reactToPost(postId: string, reaction: 'likes' | 'hearts' | 'hahas'): Promise<void> {
-    const { data } = await supabase.from('posts').select(reaction).eq('id', postId).single();
+  async reactToPost(postId: string, reaction: 'likes' | 'hearts' | 'hahas', currentUserId: string): Promise<void> {
+    const { data } = await supabase.from('posts').select('*, profiles(id)').eq('id', postId).single();
     if (data) {
       const newVal = (data as any)[reaction] + 1;
       await supabase.from('posts').update({ [reaction]: newVal }).eq('id', postId);
+
+      // Trigger Notification (only if not self-reaction)
+      if (data.user_id !== currentUserId) {
+        await this.createNotification(
+            data.user_id, 
+            currentUserId, 
+            'LIKE', 
+            `reacted to your post`, 
+            `/post/${postId}`
+        );
+      }
     }
   }
 
@@ -380,6 +392,18 @@ class DBService {
             throw new Error("Missing 'comments' table. Please run the Database Setup SQL in Admin Panel.");
         }
         throw new Error(error.message);
+    }
+
+    // Trigger Notification
+    const post = await this.getPost(postId);
+    if (post && post.userId !== userId) {
+        await this.createNotification(
+            post.userId, 
+            userId, 
+            'COMMENT', 
+            `commented on your post`, 
+            `/post/${postId}`
+        );
     }
 
     return {
@@ -470,6 +494,135 @@ class DBService {
       txHash: t.tx_hash,
       postId: t.post_id
     }));
+  }
+
+  // --- Notifications ---
+  
+  async createNotification(recipientId: string, actorId: string, type: string, message: string, link: string): Promise<void> {
+    try {
+        await supabase.from('notifications').insert([{
+            user_id: recipientId,
+            actor_id: actorId,
+            type,
+            message,
+            link,
+            is_read: false
+        }]);
+    } catch (e) {
+        console.error("Notification failed", e);
+    }
+  }
+
+  async getNotifications(userId: string): Promise<Notification[]> {
+    const { data, error } = await supabase
+        .from('notifications')
+        .select('*, profiles!notifications_actor_id_fkey(name, avatar_url, email)')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(20);
+    
+    if (error) {
+        // Silent fail if table doesn't exist yet
+        return [];
+    }
+
+    return data.map((n: any) => ({
+        id: n.id,
+        recipientId: n.user_id,
+        actorId: n.actor_id,
+        actorName: n.profiles?.name || n.profiles?.email.split('@')[0] || 'System',
+        actorAvatar: n.profiles?.avatar_url,
+        type: n.type,
+        message: n.message,
+        link: n.link,
+        isRead: n.is_read,
+        createdAt: n.created_at
+    }));
+  }
+
+  async markNotificationRead(id: string): Promise<void> {
+    await supabase.from('notifications').update({ is_read: true }).eq('id', id);
+  }
+
+  async markAllNotificationsRead(userId: string): Promise<void> {
+    await supabase.from('notifications').update({ is_read: true }).eq('user_id', userId);
+  }
+
+  // --- Messaging ---
+
+  async getConversations(userId: string): Promise<Conversation[]> {
+    // Supabase simplified conversation fetch
+    // We fetch all messages involving the user, then group by the other party
+    const { data, error } = await supabase
+        .from('messages')
+        .select('*, sender:profiles!sender_id(id, name, email, avatar_url), receiver:profiles!receiver_id(id, name, email, avatar_url)')
+        .or(`sender_id.eq.${userId},receiver_id.eq.${userId}`)
+        .order('created_at', { ascending: false });
+
+    if (error || !data) return [];
+
+    const convMap = new Map<string, Conversation>();
+
+    for (const msg of data) {
+        const isSender = msg.sender_id === userId;
+        const otherId = isSender ? msg.receiver_id : msg.sender_id;
+        const otherProfile = isSender ? msg.receiver : msg.sender;
+        
+        if (!convMap.has(otherId)) {
+            convMap.set(otherId, {
+                otherUser: {
+                    id: otherId,
+                    name: otherProfile?.name || otherProfile?.email.split('@')[0] || 'Unknown',
+                    avatarUrl: otherProfile?.avatar_url
+                },
+                lastMessage: msg.content,
+                unreadCount: 0,
+                lastActive: msg.created_at
+            });
+        }
+        
+        // Count unread if I am receiver and msg is not read
+        if (!isSender && !msg.is_read) {
+            const c = convMap.get(otherId)!;
+            c.unreadCount += 1;
+        }
+    }
+
+    return Array.from(convMap.values());
+  }
+
+  async getMessages(userId: string, otherId: string): Promise<Message[]> {
+    const { data, error } = await supabase
+        .from('messages')
+        .select('*')
+        .or(`and(sender_id.eq.${userId},receiver_id.eq.${otherId}),and(sender_id.eq.${otherId},receiver_id.eq.${userId})`)
+        .order('created_at', { ascending: true });
+    
+    if (error) return [];
+
+    // Mark received messages as read
+    const unreadIds = data.filter((m: any) => m.receiver_id === userId && !m.is_read).map((m: any) => m.id);
+    if (unreadIds.length > 0) {
+        await supabase.from('messages').update({ is_read: true }).in('id', unreadIds);
+    }
+
+    return data.map((m: any) => ({
+        id: m.id,
+        senderId: m.sender_id,
+        receiverId: m.receiver_id,
+        content: m.content,
+        isRead: m.is_read,
+        createdAt: m.created_at
+    }));
+  }
+
+  async sendMessage(senderId: string, receiverId: string, content: string): Promise<void> {
+    const { error } = await supabase.from('messages').insert([{
+        sender_id: senderId,
+        receiver_id: receiverId,
+        content
+    }]);
+    if (error) throw new Error(error.message);
   }
 
   // --- Admin ---
