@@ -126,6 +126,20 @@ begin
 end;
 $$ language plpgsql security definer;
 
+-- NEW: Secure Reaction Function
+create or replace function public.react_to_post(post_id uuid, reaction_type text)
+returns void as $$
+begin
+  if reaction_type = 'likes' then
+    update public.posts set likes = likes + 1 where id = post_id;
+  elsif reaction_type = 'hearts' then
+    update public.posts set hearts = hearts + 1 where id = post_id;
+  elsif reaction_type = 'hahas' then
+    update public.posts set hahas = hahas + 1 where id = post_id;
+  end if;
+end;
+$$ language plpgsql security definer;
+
 -- 5. RLS Policies (Simplified for Safety)
 alter table public.settings enable row level security;
 drop policy if exists "Public settings" on public.settings;
@@ -153,7 +167,7 @@ NOTIFY pgrst, 'reload config';
         <h2 className="text-2xl font-bold text-indigo-400 mb-2">🛡️ Database Setup & Update</h2>
         <div className="mb-4 text-slate-300 text-sm space-y-2">
             <p className="bg-yellow-500/20 text-yellow-200 p-2 rounded border border-yellow-500/50">
-               <strong>Requirement:</strong> Copy the code below and run it in the Supabase SQL Editor. This will create the missing columns for Logo, Background, and Referrals.
+               <strong>Requirement:</strong> Copy the code below and run it in the Supabase SQL Editor. This fixes Reactions, Logos, and Referrals.
             </p>
         </div>
         <div className="bg-slate-950 p-4 rounded-lg border border-slate-700 mb-4 relative group">

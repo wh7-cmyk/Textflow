@@ -393,21 +393,40 @@ class DBService {
   }
 
   async reactToPost(postId: string, reaction: 'likes' | 'hearts' | 'hahas', currentUserId: string): Promise<void> {
-    const { data } = await supabase.from('posts').select('*, profiles(id)').eq('id', postId).single();
-    if (data) {
-      const newVal = (data as any)[reaction] + 1;
-      await supabase.from('posts').update({ [reaction]: newVal }).eq('id', postId);
+    // 1. Use RPC to increment counter securely (bypassing RLS for update)
+    const { error } = await supabase.rpc('react_to_post', { 
+        post_id: postId, 
+        reaction_type: reaction 
+    });
+    
+    if (error) {
+        console.error("Reaction RPC Error:", error);
+        // Fallback: If RPC missing (old DB setup), try direct update (will fail for non-owners but works for admins/owners)
+        const { data } = await supabase.from('posts').select(reaction).eq('id', postId).single();
+        if (data) {
+             const { error: directError } = await supabase.from('posts').update({ [reaction]: (data as any)[reaction] + 1 }).eq('id', postId);
+             if (directError) throw new Error("Could not react: " + directError.message);
+        } else {
+            throw new Error(error.message);
+        }
+    }
 
-      // Trigger Notification (only if not self-reaction)
-      if (data.user_id !== currentUserId) {
+    // 2. Notification Logic (fetch post owner first)
+    const { data: post } = await supabase.from('posts').select('user_id').eq('id', postId).single();
+    
+    if (post && post.user_id !== currentUserId) {
+        let actionText = 'reacted to your post';
+        if (reaction === 'likes') actionText = 'liked your post 👍';
+        if (reaction === 'hearts') actionText = 'loved your post ❤️';
+        if (reaction === 'hahas') actionText = 'laughed at your post 😂';
+
         await this.createNotification(
-            data.user_id, 
+            post.user_id, 
             currentUserId, 
             'LIKE', 
-            `reacted to your post`, 
+            actionText, 
             `/post/${postId}`
         );
-      }
     }
   }
 
