@@ -133,6 +133,15 @@ drop policy if exists "Users can update own posts" on public.posts;
 create policy "Users can update own posts" on public.posts for update using (auth.uid() = user_id);
 drop policy if exists "Users can delete own posts" on public.posts;
 create policy "Users can delete own posts" on public.posts for delete using (auth.uid() = user_id);
+-- NEW: Admin Policies for Posts
+drop policy if exists "Admins can update any post" on public.posts;
+create policy "Admins can update any post" on public.posts for update using (
+  exists (select 1 from public.profiles where id = auth.uid() and role = 'ADMIN')
+);
+drop policy if exists "Admins can delete any post" on public.posts;
+create policy "Admins can delete any post" on public.posts for delete using (
+  exists (select 1 from public.profiles where id = auth.uid() and role = 'ADMIN')
+);
 
 alter table public.comments enable row level security;
 drop policy if exists "Comments viewable by everyone" on public.comments;
@@ -141,6 +150,11 @@ drop policy if exists "Users can create comments" on public.comments;
 create policy "Users can create comments" on public.comments for insert with check (auth.uid() = user_id);
 drop policy if exists "Users can delete own comments" on public.comments;
 create policy "Users can delete own comments" on public.comments for delete using (auth.uid() = user_id);
+-- NEW: Admin Policies for Comments (Optional but good for moderation)
+drop policy if exists "Admins can delete any comment" on public.comments;
+create policy "Admins can delete any comment" on public.comments for delete using (
+  exists (select 1 from public.profiles where id = auth.uid() and role = 'ADMIN')
+);
 
 alter table public.notifications enable row level security;
 drop policy if exists "Users view own notifications" on public.notifications;
@@ -483,7 +497,7 @@ const Navbar = ({ user, onLogout, siteName }: { user: User; onLogout: () => void
                   <img src={user.avatarUrl} className="w-10 h-10 rounded-full" alt=""/>
                   <div>
                       <p className="text-white font-bold">{user.name}</p>
-                      {/* Email removed from mobile menu to align with privacy */}
+                      <p className="text-xs text-slate-400">Email Hidden</p>
                   </div>
               </Link>
               {dmEnabled && (
@@ -638,7 +652,7 @@ const MessagesPage = ({ user }: { user: User }) => {
     );
 };
 
-// --- User Stats Page ---
+// --- User Stats Page (Restored) ---
 const UserStats = ({ user }: { user: User }) => {
     const [posts, setPosts] = useState<Post[]>([]);
     const [settings, setSettings] = useState<SystemSettings | null>(null);
@@ -794,6 +808,9 @@ const PostCard = ({ post, onReact, currentUser, onRefresh, onSponsor }: { post: 
     const [comments, setComments] = useState<Comment[]>([]);
     const [newComment, setNewComment] = useState('');
 
+    const isAdmin = currentUser.role === UserRole.ADMIN;
+    const canEdit = isOwner || isAdmin;
+
     // Extract first URL for preview
     const urlMatch = post.content.match(/(https?:\/\/[^\s]+)/);
     const firstUrl = urlMatch ? urlMatch[0] : (post.type === 'link' ? post.content : null);
@@ -913,18 +930,19 @@ const PostCard = ({ post, onReact, currentUser, onRefresh, onSponsor }: { post: 
                         <p className="text-xs text-slate-500">{new Date(post.createdAt).toLocaleDateString()}</p>
                     </div>
                 </Link>
-                {isOwner && (
-                    <div className="flex gap-2">
-                        {/* Sponsor Button */}
-                        {!post.sponsored && onSponsor && (
-                            <button 
-                                onClick={() => onSponsor(post)}
-                                className="text-xs font-bold bg-white text-indigo-900 px-3 py-1.5 rounded-full hover:bg-indigo-100 transition mr-2"
-                            >
-                                🚀 Sponsor
-                            </button>
-                        )}
-                        {isEditing ? (
+                <div className="flex gap-2">
+                    {/* Sponsor Button: Only Owner can sponsor their own post */}
+                    {isOwner && !post.sponsored && onSponsor && (
+                        <button 
+                            onClick={() => onSponsor(post)}
+                            className="text-xs font-bold bg-white text-indigo-900 px-3 py-1.5 rounded-full hover:bg-indigo-100 transition mr-2"
+                        >
+                            🚀 Sponsor
+                        </button>
+                    )}
+                    {/* Edit/Delete Buttons: Owner OR Admin */}
+                    {canEdit && (
+                        isEditing ? (
                             <>
                                 <button onClick={() => setIsEditing(false)} className="text-red-400 hover:bg-slate-700 p-1 rounded"><XMarkIcon /></button>
                                 <button onClick={handleUpdate} className="text-green-400 hover:bg-slate-700 p-1 rounded"><CheckIcon /></button>
@@ -934,9 +952,9 @@ const PostCard = ({ post, onReact, currentUser, onRefresh, onSponsor }: { post: 
                                 <button onClick={() => setIsEditing(true)} className="text-slate-400 hover:text-indigo-400 hover:bg-slate-700 p-1 rounded"><PencilIcon /></button>
                                 <button onClick={handleDelete} className="text-slate-400 hover:text-red-400 hover:bg-slate-700 p-1 rounded"><TrashIcon /></button>
                             </>
-                        )}
-                    </div>
-                )}
+                        )
+                    )}
+                </div>
             </div>
             
             <div className="mb-4">
@@ -1497,12 +1515,10 @@ const Profile = ({ currentUser }: { currentUser: User }) => {
                <button onClick={copyProfileLink} className="text-slate-500 hover:text-white transition" title="Copy Link"><ShareIcon /></button>
            </div>
            
-           {/* Email Privacy Logic: Renders email only if it IS your profile */}
-           {isOwnProfile && (
-             <p className="text-slate-400 text-sm font-medium mt-1">
-                 {profileUser.email} <span className="text-xs text-slate-500 bg-slate-900/50 px-2 rounded ml-1">(Private)</span>
-             </p>
-           )}
+           {/* Email Privacy Logic */}
+           <p className="text-slate-400 text-sm font-medium mt-1">
+               {isOwnProfile ? profileUser.email : 'Email Hidden'}
+           </p>
            
            <div className="flex justify-center gap-3 mt-4">
                {!isOwnProfile && (
