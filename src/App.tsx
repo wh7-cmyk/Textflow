@@ -660,7 +660,7 @@ const Auth = ({ onLogin, onShowSetup, siteName }: { onLogin: (u: User) => void, 
     );
 };
 
-const PostCard = ({ post, onReact, currentUser, onRefresh }: { post: Post; onReact: (id: string, type: any) => void; currentUser: User; onRefresh?: () => void }) => {
+const PostCard = ({ post, onReact, currentUser, onRefresh, onSponsor }: { post: Post; onReact: (id: string, type: any) => void; currentUser: User; onRefresh?: () => void, onSponsor?: (post: Post) => void }) => {
     const [showPreview, setShowPreview] = useState(true);
     const [isOwner, setIsOwner] = useState(currentUser.id === post.userId);
     const [isEditing, setIsEditing] = useState(false);
@@ -790,6 +790,15 @@ const PostCard = ({ post, onReact, currentUser, onRefresh }: { post: Post; onRea
                 </Link>
                 {isOwner && (
                     <div className="flex gap-2">
+                        {/* Sponsor Button */}
+                        {!post.sponsored && onSponsor && (
+                            <button 
+                                onClick={() => onSponsor(post)}
+                                className="text-xs font-bold bg-white text-indigo-900 px-3 py-1.5 rounded-full hover:bg-indigo-100 transition mr-2"
+                            >
+                                🚀 Sponsor
+                            </button>
+                        )}
                         {isEditing ? (
                             <>
                                 <button onClick={() => setIsEditing(false)} className="text-red-400 hover:bg-slate-700 p-1 rounded"><XMarkIcon /></button>
@@ -900,6 +909,8 @@ const Feed = ({ currentUser }: { currentUser: User }) => {
     const [loading, setLoading] = useState(true);
     const [newPostContent, setNewPostContent] = useState('');
     const [isPosting, setIsPosting] = useState(false);
+    const [sponsorPost, setSponsorPost] = useState<Post | null>(null);
+    const navigate = useNavigate();
 
     const load = async () => {
         const p = await mockDB.getFeed();
@@ -928,8 +939,28 @@ const Feed = ({ currentUser }: { currentUser: User }) => {
         }
     };
 
+    const confirmSponsor = async (amount: number) => {
+        if (!sponsorPost) return;
+        try {
+          await mockDB.sponsorPost(sponsorPost.id, amount);
+          setSponsorPost(null);
+          load(); // refresh feed to show updated view count / status
+          navigate('/advertiser');
+        } catch (e: any) {
+          alert(e.message);
+        }
+    };
+
     return (
         <div className="max-w-2xl mx-auto py-6 px-4">
+            {sponsorPost && (
+                <SponsorModal 
+                post={sponsorPost} 
+                userBalance={currentUser.balance} 
+                onClose={() => setSponsorPost(null)} 
+                onConfirm={confirmSponsor} 
+                />
+            )}
             <div className="mb-6 flex gap-2 overflow-x-auto pb-2">
                 <Link to={`/profile/${currentUser.id}`} className="bg-slate-800 text-slate-300 px-4 py-2 rounded-full font-bold text-sm border border-slate-700 hover:bg-slate-700 whitespace-nowrap">My Posts</Link>
             </div>
@@ -959,7 +990,13 @@ const Feed = ({ currentUser }: { currentUser: User }) => {
             {loading ? <div className="text-center text-slate-500">Loading feed...</div> : (
                 posts.map(p => (
                     <React.Fragment key={p.id}>
-                        <PostCard post={p} currentUser={currentUser} onReact={() => {}} onRefresh={load} />
+                        <PostCard 
+                            post={p} 
+                            currentUser={currentUser} 
+                            onReact={() => {}} 
+                            onRefresh={load} 
+                            onSponsor={(post) => setSponsorPost(post)}
+                        />
                     </React.Fragment>
                 ))
             )}
@@ -1254,15 +1291,13 @@ const Profile = ({ currentUser }: { currentUser: User }) => {
         {posts.length === 0 ? <p className="text-slate-500 text-center py-10 bg-slate-800/50 rounded-xl border border-slate-800 border-dashed">No posts yet.</p> : (
             posts.map(p => (
             <div key={p.id} className="relative group">
-                <PostCard post={p} onReact={() => {}} currentUser={currentUser} onRefresh={() => setTrigger(t => t+1)} />
-                {!p.sponsored && isOwnProfile && (
-                <button 
-                    onClick={() => setSponsorPost(p)} 
-                    className="absolute top-5 right-28 text-xs font-bold bg-white text-indigo-900 px-3 py-1.5 rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-all hover:scale-105 transform translate-y-1 group-hover:translate-y-0"
-                >
-                    🚀 Sponsor
-                </button>
-                )}
+                <PostCard 
+                    post={p} 
+                    onReact={() => {}} 
+                    currentUser={currentUser} 
+                    onRefresh={() => setTrigger(t => t+1)} 
+                    onSponsor={(post) => setSponsorPost(post)}
+                />
             </div>
             ))
         )}
