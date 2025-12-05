@@ -387,6 +387,16 @@ class DBService {
     }
   }
 
+  async incrementPostView(postId: string): Promise<void> {
+    // Increment organic view count.
+    // In a real production app, we would use an RPC call or a separate analytics table.
+    // For this app, we read-then-write (optimistic).
+    const { data } = await supabase.from('posts').select('views').eq('id', postId).single();
+    if (data) {
+        await supabase.from('posts').update({ views: data.views + 1 }).eq('id', postId);
+    }
+  }
+
   async sponsorPost(postId: string, amount: number): Promise<void> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error("Not logged in");

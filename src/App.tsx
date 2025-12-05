@@ -883,10 +883,20 @@ const PostCard = ({ post, onReact, currentUser, onRefresh, onSponsor }: { post: 
     };
 
     useEffect(() => {
+        // Increment organic view (if not owner)
+        if (!isOwner) {
+            const key = `viewed_${post.id}`;
+            // Use session storage to prevent spamming views on refresh
+            if (!sessionStorage.getItem(key)) {
+                mockDB.incrementPostView(post.id);
+                sessionStorage.setItem(key, 'true');
+            }
+        }
+
         if (showComments) {
             mockDB.getPostComments(post.id).then(setComments);
         }
-    }, [showComments, post.id]);
+    }, [showComments, post.id, isOwner]);
 
     const handleReact = async (type: 'likes' | 'hearts' | 'hahas') => {
         await mockDB.reactToPost(post.id, type, currentUser.id);
