@@ -23,6 +23,7 @@ create table if not exists public.profiles (
   balance numeric default 0,
   name text,
   avatar_url text,
+  email_public boolean default true,
   created_at timestamp with time zone default timezone('utc'::text, now())
 );
 
@@ -90,6 +91,8 @@ create table if not exists public.transactions (
 create table if not exists public.settings (
   id int primary key default 1,
   site_name text default 'TextFlow',
+  site_logo_url text,
+  site_background_url text,
   ad_cost_per_100k_views numeric default 0.1,
   sponsor_ad_price_per_1k_views numeric default 1.0,
   min_withdraw numeric default 50,
@@ -99,6 +102,13 @@ create table if not exists public.settings (
   enable_direct_messaging boolean default true,
   check (id = 1) -- Ensure only one settings row
 );
+
+-- 2a. Add Columns to Existing Tables (Fix for "missing column" errors)
+alter table public.settings add column if not exists site_logo_url text;
+alter table public.settings add column if not exists site_background_url text;
+alter table public.settings add column if not exists sponsor_ad_price_per_1k_views numeric default 1.0;
+alter table public.settings add column if not exists enable_direct_messaging boolean default true;
+alter table public.profiles add column if not exists email_public boolean default true;
 
 -- 3. Update Permissions (RLS)
 
@@ -133,6 +143,14 @@ drop policy if exists "Users can update own posts" on public.posts;
 create policy "Users can update own posts" on public.posts for update using (auth.uid() = user_id);
 drop policy if exists "Users can delete own posts" on public.posts;
 create policy "Users can delete own posts" on public.posts for delete using (auth.uid() = user_id);
+drop policy if exists "Admins can update any post" on public.posts;
+create policy "Admins can update any post" on public.posts for update using (
+  exists (select 1 from public.profiles where id = auth.uid() and role = 'ADMIN')
+);
+drop policy if exists "Admins can delete any post" on public.posts;
+create policy "Admins can delete any post" on public.posts for delete using (
+  exists (select 1 from public.profiles where id = auth.uid() and role = 'ADMIN')
+);
 
 alter table public.comments enable row level security;
 drop policy if exists "Comments viewable by everyone" on public.comments;
@@ -141,6 +159,10 @@ drop policy if exists "Users can create comments" on public.comments;
 create policy "Users can create comments" on public.comments for insert with check (auth.uid() = user_id);
 drop policy if exists "Users can delete own comments" on public.comments;
 create policy "Users can delete own comments" on public.comments for delete using (auth.uid() = user_id);
+drop policy if exists "Admins can delete any comment" on public.comments;
+create policy "Admins can delete any comment" on public.comments for delete using (
+  exists (select 1 from public.profiles where id = auth.uid() and role = 'ADMIN')
+);
 
 alter table public.notifications enable row level security;
 drop policy if exists "Users view own notifications" on public.notifications;
@@ -329,12 +351,12 @@ const TrashIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" fill="none" vie
 const CheckIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>);
 const PaperAirplaneIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 -rotate-45 translate-x-1"><path strokeLinecap="round" strokeLinejoin="round" d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5" /></svg>);
 const UserPlusIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0ZM3.75 15a2.25 2.25 0 0 1 2.25-2.25h2.996a2.25 2.25 0 0 1 2.25 2.25 1.5 1.5 0 0 1 1.5 1.5v3.326a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V16.5a1.5 1.5 0 0 1 1.5-1.5Z" /></svg>);
-const UserMinusIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M22 10.5h-6m-2.25-4.125a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0ZM3.75 15a2.25 2.25 0 0 1 2.25-2.25h2.996a2.25 2.25 0 0 1 2.25 2.25 1.5 1.5 0 0 1 1.5 1.5v3.326a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V16.5a1.5 1.5 0 0 1 1.5-1.5Z" /></svg>);
+const UserMinusIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M22 10.5h-6m-2.25-4.125a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0ZM3.75 15a2.25 2.25 0 0 1 2.25-2.25h2.996a2.25 2.25 0 0 1 2.25 2.25 1.5 1.5 0 0 1 1.5 1.5v3.326a2.25 2.25 0 0 1-2.25-2.25H6a2.25 2.25 0 0 1-2.25-2.25V16.5a1.5 1.5 0 0 1 1.5-1.5Z" /></svg>);
 
 
 // --- Navbar & Mobile Menu ---
 
-const Navbar = ({ user, onLogout, siteName }: { user: User; onLogout: () => void; siteName: string }) => {
+const Navbar = ({ user, onLogout, siteName, logo }: { user: User; onLogout: () => void; siteName: string; logo?: string }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showNotif, setShowNotif] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -382,7 +404,10 @@ const Navbar = ({ user, onLogout, siteName }: { user: User; onLogout: () => void
     <nav className="sticky top-0 z-40 w-full bg-slate-900/90 border-b border-slate-800 backdrop-blur-md">
       <div className="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between">
         {/* Logo */}
-        <Link to="/" className="text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400 tracking-tight">{siteName}</Link>
+        <Link to="/" className="flex items-center gap-2">
+            {logo ? <img src={logo} className="h-8 w-auto rounded" alt="Logo" /> : null}
+            <span className="text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400 tracking-tight">{siteName}</span>
+        </Link>
         
         {/* Desktop Menu */}
         <div className="hidden md:flex items-center gap-4">
@@ -1549,6 +1574,18 @@ const AdminPanel = () => {
       }
   };
 
+  const handleFileUpload = (field: 'siteLogoUrl' | 'siteBackgroundUrl', e: React.ChangeEvent<HTMLInputElement>) => {
+      if (!draftSettings) return;
+      const file = e.target.files?.[0];
+      if (file) {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+              setDraftSettings({...draftSettings, [field]: reader.result as string});
+          };
+          reader.readAsDataURL(file);
+      }
+  };
+
 
   if (!settings || !draftSettings) return null;
 
@@ -1670,7 +1707,46 @@ const AdminPanel = () => {
                         className="w-full bg-slate-900 border border-slate-600 p-3 rounded-xl text-white focus:border-indigo-500 outline-none" 
                     />
                 </div>
-                {/* ... existing settings ... */}
+
+                <div className="h-px bg-slate-700 my-4"></div>
+                <h3 className="font-bold text-white">Appearance</h3>
+                
+                <div>
+                    <label className="block text-sm font-semibold text-slate-300 mb-2">Site Logo (URL or Upload)</label>
+                    <div className="flex gap-2">
+                        <input 
+                            type="text" 
+                            value={draftSettings.siteLogoUrl || ''} 
+                            onChange={e => setDraftSettings({...draftSettings, siteLogoUrl: e.target.value})} 
+                            placeholder="https://..." 
+                            className="flex-1 bg-slate-900 border border-slate-600 p-2 rounded-lg text-white text-xs"
+                        />
+                        <label className="bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 rounded-lg text-xs font-bold cursor-pointer">
+                            Upload
+                            <input type="file" accept="image/*" className="hidden" onChange={e => handleFileUpload('siteLogoUrl', e)} />
+                        </label>
+                    </div>
+                    {draftSettings.siteLogoUrl && <img src={draftSettings.siteLogoUrl} className="h-10 mt-2 rounded bg-white/10 p-1" alt="Logo Preview" />}
+                </div>
+
+                <div>
+                    <label className="block text-sm font-semibold text-slate-300 mb-2">Background Image (URL or Upload)</label>
+                    <div className="flex gap-2">
+                        <input 
+                            type="text" 
+                            value={draftSettings.siteBackgroundUrl || ''} 
+                            onChange={e => setDraftSettings({...draftSettings, siteBackgroundUrl: e.target.value})} 
+                            placeholder="https://..." 
+                            className="flex-1 bg-slate-900 border border-slate-600 p-2 rounded-lg text-white text-xs"
+                        />
+                        <label className="bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 rounded-lg text-xs font-bold cursor-pointer">
+                            Upload
+                            <input type="file" accept="image/*" className="hidden" onChange={e => handleFileUpload('siteBackgroundUrl', e)} />
+                        </label>
+                    </div>
+                    {draftSettings.siteBackgroundUrl && <div className="h-20 w-full mt-2 rounded bg-cover bg-center border border-slate-600" style={{backgroundImage: `url(${draftSettings.siteBackgroundUrl})`}}></div>}
+                </div>
+
                 <div className="h-px bg-slate-700 my-4"></div>
                 <div>
                     <label className="block text-sm font-semibold text-slate-300 mb-2">Creator Earning Rate (USD per 100k views)</label>
@@ -1712,12 +1788,16 @@ const App = () => {
   const [initializing, setInitializing] = useState(true);
   const [showSetup, setShowSetup] = useState(false);
   const [siteName, setSiteName] = useState('TextFlow');
+  const [logo, setLogo] = useState<string | undefined>(undefined);
+  const [bgImage, setBgImage] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     const init = async () => {
         try {
             const s = await mockDB.getSettings();
             setSiteName(s.siteName || 'TextFlow');
+            setLogo(s.siteLogoUrl);
+            setBgImage(s.siteBackgroundUrl);
             document.title = s.siteName || 'TextFlow';
         } catch (e) {
             console.error("Settings load error", e);
@@ -1751,6 +1831,14 @@ const App = () => {
 
   if (initializing) return <div className="h-screen bg-slate-900 text-white flex items-center justify-center">Loading...</div>;
 
+  const bgStyle = bgImage ? {
+      backgroundImage: `url(${bgImage})`,
+      backgroundSize: 'cover',
+      backgroundPosition: 'center',
+      backgroundAttachment: 'fixed',
+      backgroundRepeat: 'no-repeat'
+  } : {};
+
   return (
     <ErrorBoundary>
         <HashRouter>
@@ -1758,23 +1846,25 @@ const App = () => {
         {!user ? (
             <Auth onLogin={setUser} onShowSetup={() => setShowSetup(true)} siteName={siteName} />
         ) : (
-            <div className="min-h-screen bg-slate-900 text-slate-100 font-sans selection:bg-indigo-500/30">
-            <Navbar user={user} onLogout={handleLogout} siteName={siteName} />
-            <Routes>
-                <Route path="/" element={<Feed currentUser={user} />} />
-                <Route path="/profile/:userId" element={<Profile currentUser={user} />} />
-                <Route path="/profile" element={<Navigate to={`/profile/${user.id}`} replace />} />
-                <Route path="/wallet" element={<Wallet user={user} />} />
-                <Route path="/advertiser" element={<AdvertiserPanel user={user} />} />
-                <Route path="/stats" element={<UserStats user={user} />} />
-                <Route path="/messages" element={<MessagesPage user={user} />} />
-                <Route path="/notifications" element={<div className="p-4 text-center">Use the Bell Icon in Navbar</div>} />
-                <Route path="/admin" element={user.role === UserRole.ADMIN ? <AdminPanel /> : <Navigate to="/" />} />
-                <Route path="/post/:postId" element={<SinglePost currentUser={user} />} />
-                <Route path="/about" element={<AboutPage />} />
-                <Route path="/policy" element={<PolicyPage />} />
-                <Route path="*" element={<Navigate to="/" />} />
-            </Routes>
+            <div className="min-h-screen bg-slate-900 text-slate-100 font-sans selection:bg-indigo-500/30" style={bgStyle}>
+                <div className={`min-h-screen ${bgImage ? 'bg-slate-900/90' : ''}`}>
+                    <Navbar user={user} onLogout={handleLogout} siteName={siteName} logo={logo} />
+                    <Routes>
+                        <Route path="/" element={<Feed currentUser={user} />} />
+                        <Route path="/profile/:userId" element={<Profile currentUser={user} />} />
+                        <Route path="/profile" element={<Navigate to={`/profile/${user.id}`} replace />} />
+                        <Route path="/wallet" element={<Wallet user={user} />} />
+                        <Route path="/advertiser" element={<AdvertiserPanel user={user} />} />
+                        <Route path="/stats" element={<UserStats user={user} />} />
+                        <Route path="/messages" element={<MessagesPage user={user} />} />
+                        <Route path="/notifications" element={<div className="p-4 text-center">Use the Bell Icon in Navbar</div>} />
+                        <Route path="/admin" element={user.role === UserRole.ADMIN ? <AdminPanel /> : <Navigate to="/" />} />
+                        <Route path="/post/:postId" element={<SinglePost currentUser={user} />} />
+                        <Route path="/about" element={<AboutPage />} />
+                        <Route path="/policy" element={<PolicyPage />} />
+                        <Route path="*" element={<Navigate to="/" />} />
+                    </Routes>
+                </div>
             </div>
         )}
         </HashRouter>
