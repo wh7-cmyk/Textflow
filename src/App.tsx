@@ -1243,7 +1243,7 @@ const Profile = ({ user }: { user: User }) => {
                 {!p.sponsored && (
                 <button 
                     onClick={() => setSponsorPost(p)} 
-                    className="absolute top-5 right-14 text-xs font-bold bg-white text-indigo-900 px-3 py-1.5 rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-all hover:scale-105 transform translate-y-1 group-hover:translate-y-0"
+                    className="absolute top-5 right-28 text-xs font-bold bg-white text-indigo-900 px-3 py-1.5 rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-all hover:scale-105 transform translate-y-1 group-hover:translate-y-0"
                 >
                     🚀 Sponsor
                 </button>
