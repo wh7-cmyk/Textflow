@@ -10,22 +10,16 @@ import { generateSamplePosts } from './services/geminiService';
 // --- SQL Modal for Supabase Setup ---
 const SupabaseSetup = ({ onClose }: { onClose: () => void }) => {
   const sql = `
--- ⚠️ WARNING: THIS RESETS YOUR PUBLIC TABLES ⚠️
--- Run this in Supabase SQL Editor
+-- ✅ SAFE UPDATE SCRIPT (NON-DESTRUCTIVE)
+-- Run this in Supabase SQL Editor. 
+-- It will NOT delete your existing data (Users, Posts, etc.).
+-- It only adds missing tables and updates permissions.
 
--- 1. Clean up old tables/triggers to start fresh
-drop trigger if exists on_auth_user_created on auth.users;
-drop function if exists public.handle_new_user;
-drop table if exists public.transactions;
-drop table if exists public.comments;
-drop table if exists public.posts;
-drop table if exists public.profiles;
-
--- 2. Create Extensions
+-- 1. Create Extensions
 create extension if not exists "uuid-ossp";
 
--- 3. Create Profiles Table
-create table public.profiles (
+-- 2. Create Tables (Only if they don't exist)
+create table if not exists public.profiles (
   id uuid references auth.users not null primary key,
   email text,
   role text default 'USER',
@@ -35,8 +29,7 @@ create table public.profiles (
   created_at timestamp with time zone default timezone('utc'::text, now())
 );
 
--- 4. Create Posts Table
-create table public.posts (
+create table if not exists public.posts (
   id uuid default uuid_generate_v4() primary key,
   user_id uuid references public.profiles(id),
   content text,
@@ -49,8 +42,7 @@ create table public.posts (
   created_at timestamp with time zone default timezone('utc'::text, now())
 );
 
--- 5. Create Comments Table
-create table public.comments (
+create table if not exists public.comments (
   id uuid default uuid_generate_v4() primary key,
   post_id uuid references public.posts(id) on delete cascade,
   user_id uuid references public.profiles(id),
@@ -58,8 +50,7 @@ create table public.comments (
   created_at timestamp with time zone default timezone('utc'::text, now())
 );
 
--- 6. Create Transactions Table
-create table public.transactions (
+create table if not exists public.transactions (
   id uuid default uuid_generate_v4() primary key,
   user_id uuid references public.profiles(id),
   type text,
@@ -71,41 +62,64 @@ create table public.transactions (
   created_at timestamp with time zone default timezone('utc'::text, now())
 );
 
--- 7. Enable Security (RLS)
+-- 3. Update Permissions (RLS)
+-- We drop old policies and recreate them to ensure latest security logic.
+-- This does NOT delete data.
+
 alter table public.profiles enable row level security;
+drop policy if exists "Public profiles are viewable by everyone" on public.profiles;
 create policy "Public profiles are viewable by everyone" on public.profiles for select using (true);
+
+drop policy if exists "Users can update own profile" on public.profiles;
 create policy "Users can update own profile" on public.profiles for update using (auth.uid() = id);
 
-alter table public.posts enable row level security;
-create policy "Posts are viewable by everyone" on public.posts for select using (true);
-create policy "Users can create posts" on public.posts for insert with check (auth.uid() = user_id);
-create policy "Users can update own posts" on public.posts for update using (auth.uid() = user_id);
-create policy "Users can delete own posts" on public.posts for delete using (auth.uid() = user_id);
-
-alter table public.comments enable row level security;
-create policy "Comments viewable by everyone" on public.comments for select using (true);
-create policy "Users can create comments" on public.comments for insert with check (auth.uid() = user_id);
-create policy "Users can delete own comments" on public.comments for delete using (auth.uid() = user_id);
-
-alter table public.transactions enable row level security;
-create policy "Users view own txs" on public.transactions for select using (auth.uid() = user_id);
-create policy "Users create txs" on public.transactions for insert with check (auth.uid() = user_id);
-
--- 8. ADMIN POLICIES (Required for Admin Panel to work)
-create policy "Admins can view all transactions" on public.transactions for select using (
-  exists (select 1 from public.profiles where id = auth.uid() and role = 'ADMIN')
-);
-
-create policy "Admins can update transactions" on public.transactions for update using (
-  exists (select 1 from public.profiles where id = auth.uid() and role = 'ADMIN')
-);
-
+drop policy if exists "Admins can update any profile" on public.profiles;
 create policy "Admins can update any profile" on public.profiles for update using (
   exists (select 1 from public.profiles where id = auth.uid() and role = 'ADMIN')
 );
 
--- 9. SETUP AUTO-ADMIN TRIGGER
--- This automatically makes 'admin@adminn.com' an ADMIN with $10,000 balance when they sign up.
+alter table public.posts enable row level security;
+drop policy if exists "Posts are viewable by everyone" on public.posts;
+create policy "Posts are viewable by everyone" on public.posts for select using (true);
+
+drop policy if exists "Users can create posts" on public.posts;
+create policy "Users can create posts" on public.posts for insert with check (auth.uid() = user_id);
+
+drop policy if exists "Users can update own posts" on public.posts;
+create policy "Users can update own posts" on public.posts for update using (auth.uid() = user_id);
+
+drop policy if exists "Users can delete own posts" on public.posts;
+create policy "Users can delete own posts" on public.posts for delete using (auth.uid() = user_id);
+
+alter table public.comments enable row level security;
+drop policy if exists "Comments viewable by everyone" on public.comments;
+create policy "Comments viewable by everyone" on public.comments for select using (true);
+
+drop policy if exists "Users can create comments" on public.comments;
+create policy "Users can create comments" on public.comments for insert with check (auth.uid() = user_id);
+
+drop policy if exists "Users can delete own comments" on public.comments;
+create policy "Users can delete own comments" on public.comments for delete using (auth.uid() = user_id);
+
+alter table public.transactions enable row level security;
+drop policy if exists "Users view own txs" on public.transactions;
+create policy "Users view own txs" on public.transactions for select using (auth.uid() = user_id);
+
+drop policy if exists "Users create txs" on public.transactions;
+create policy "Users create txs" on public.transactions for insert with check (auth.uid() = user_id);
+
+drop policy if exists "Admins can view all transactions" on public.transactions;
+create policy "Admins can view all transactions" on public.transactions for select using (
+  exists (select 1 from public.profiles where id = auth.uid() and role = 'ADMIN')
+);
+
+drop policy if exists "Admins can update transactions" on public.transactions;
+create policy "Admins can update transactions" on public.transactions for update using (
+  exists (select 1 from public.profiles where id = auth.uid() and role = 'ADMIN')
+);
+
+-- 4. Admin Auto-Setup Trigger
+-- Safe to replace function logic without data loss
 create or replace function public.handle_new_user()
 returns trigger as $$
 begin
@@ -122,24 +136,25 @@ begin
 end;
 $$ language plpgsql security definer;
 
+-- Recreate trigger only if needed (Standard way is drop/create)
+drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
 
--- 10. REFRESH SCHEMA CACHE
--- This fixes the "Could not find table in schema cache" error
+-- 5. Refresh Schema Cache
 NOTIFY pgrst, 'reload config';
   `;
 
   return (
     <div className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center p-4">
-      <div className="bg-slate-800 rounded-xl max-w-2xl w-full p-6 border border-red-500 shadow-2xl overflow-y-auto max-h-[90vh]">
-        <h2 className="text-2xl font-bold text-red-400 mb-2">⚠️ Database Setup</h2>
+      <div className="bg-slate-800 rounded-xl max-w-2xl w-full p-6 border border-indigo-500 shadow-2xl overflow-y-auto max-h-[90vh]">
+        <h2 className="text-2xl font-bold text-indigo-400 mb-2">🛡️ Safe Database Update</h2>
         <div className="mb-4 text-slate-300 text-sm space-y-2">
             <p>1. Copy the SQL code below.</p>
-            <p>2. Run it in your Supabase SQL Editor to create tables and permissions.</p>
-            <p className="text-yellow-400 font-bold bg-yellow-400/10 p-2 rounded border border-yellow-400/30">
-               NOTE: To enable comments, edit/delete, and admin features, you MUST run this updated script.
+            <p>2. Run it in your Supabase SQL Editor.</p>
+            <p className="text-green-400 font-bold bg-green-400/10 p-2 rounded border border-green-400/30">
+               SAFE MODE: This script will NOT delete your existing users or posts. It only adds new features and fixes permissions.
             </p>
         </div>
         <div className="bg-slate-950 p-4 rounded-lg border border-slate-700 mb-4 relative group">
@@ -151,8 +166,8 @@ NOTIFY pgrst, 'reload config';
              Copy SQL
            </button>
         </div>
-        <button onClick={onClose} className="w-full bg-red-600 hover:bg-red-500 text-white font-bold py-3 rounded-lg">
-          I Have Run the SQL (Reload App)
+        <button onClick={onClose} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-lg">
+          Done
         </button>
       </div>
     </div>
