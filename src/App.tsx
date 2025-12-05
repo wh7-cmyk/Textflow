@@ -9,10 +9,12 @@ import { mockDB } from './services/mockDb';
 // --- SQL Modal for Supabase Setup ---
 const SupabaseSetup = ({ onClose }: { onClose: () => void }) => {
   const sql = `
--- ✅ SAFE UPDATE SCRIPT
--- Run this in Supabase SQL Editor to fix missing columns/tables.
+-- ✅ SAFE UPDATE SCRIPT (NON-DESTRUCTIVE)
+-- Run this in Supabase SQL Editor. 
+-- 1. Create Extensions
+create extension if not exists "uuid-ossp";
 
--- 1. Create Tables (If not exist)
+-- 2. Create Tables (If they don't exist)
 create table if not exists public.profiles (
   id uuid references auth.users not null primary key,
   email text,
@@ -21,7 +23,68 @@ create table if not exists public.profiles (
   name text,
   avatar_url text,
   email_public boolean default true,
-  created_at timestamp with time zone default timezone('utc'::text, now())
+  created_at timestamp with time zone default timezone ('utc'::text, now())
+);
+
+create table if not exists public.posts (
+  id uuid default uuid_generate_v4 () primary key,
+  user_id uuid references public.profiles (id),
+  content text,
+  type text check (type in ('text', 'link')),
+  views int default 0,
+  sponsored boolean default false,
+  likes int default 0,
+  hearts int default 0,
+  hahas int default 0,
+  created_at timestamp with time zone default timezone ('utc'::text, now())
+);
+
+create table if not exists public.comments (
+  id uuid default uuid_generate_v4 () primary key,
+  post_id uuid references public.posts (id) on delete cascade,
+  user_id uuid references public.profiles (id),
+  content text,
+  created_at timestamp with time zone default timezone ('utc'::text, now())
+);
+
+create table if not exists public.notifications (
+  id uuid default uuid_generate_v4 () primary key,
+  user_id uuid references public.profiles (id), -- Recipient
+  actor_id uuid references public.profiles (id), -- Triggered by
+  type text,
+  message text,
+  link text,
+  is_read boolean default false,
+  created_at timestamp with time zone default timezone ('utc'::text, now())
+);
+
+create table if not exists public.messages (
+  id uuid default uuid_generate_v4 () primary key,
+  sender_id uuid references public.profiles (id),
+  receiver_id uuid references public.profiles (id),
+  content text,
+  is_read boolean default false,
+  created_at timestamp with time zone default timezone ('utc'::text, now())
+);
+
+create table if not exists public.follows (
+  id uuid default uuid_generate_v4 () primary key,
+  follower_id uuid references public.profiles (id),
+  following_id uuid references public.profiles (id),
+  created_at timestamp with time zone default timezone ('utc'::text, now()),
+  unique (follower_id, following_id)
+);
+
+create table if not exists public.transactions (
+  id uuid default uuid_generate_v4 () primary key,
+  user_id uuid references public.profiles (id),
+  type text,
+  amount numeric,
+  network text,
+  status text,
+  tx_hash text,
+  post_id uuid references public.posts (id),
+  created_at timestamp with time zone default timezone ('utc'::text, now())
 );
 
 create table if not exists public.settings (
@@ -36,97 +99,337 @@ create table if not exists public.settings (
   about_content text default 'About Us content goes here...',
   policy_content text default 'Privacy Policy goes here...',
   enable_direct_messaging boolean default true,
-  referral_message text default 'Invite friends! If they sign up via your link, you''ll automatically follow each other.',
-  check (id = 1)
+  check (id = 1) -- Ensure only one settings row
 );
 
--- 2. Add Columns (Fix for "missing column" errors)
-alter table public.settings add column if not exists site_logo_url text;
-alter table public.settings add column if not exists site_background_url text;
-alter table public.settings add column if not exists sponsor_ad_price_per_1k_views numeric default 1.0;
-alter table public.settings add column if not exists enable_direct_messaging boolean default true;
-alter table public.settings add column if not exists referral_message text default 'Invite friends! If they sign up via your link, you''ll automatically follow each other.';
-alter table public.profiles add column if not exists email_public boolean default true;
+-- 2a. Add Columns to Existing Tables (Fix for "missing column" errors)
+alter table public.settings
+add column if not exists site_logo_url text;
 
--- 3. Create Other Tables
-create table if not exists public.posts (
-  id uuid default uuid_generate_v4() primary key,
-  user_id uuid references public.profiles(id),
-  content text,
-  type text,
-  views int default 0,
-  sponsored boolean default false,
-  likes int default 0,
-  hearts int default 0,
-  hahas int default 0,
-  created_at timestamp with time zone default timezone('utc'::text, now())
+alter table public.settings
+add column if not exists site_background_url text;
+
+alter table public.settings
+add column if not exists sponsor_ad_price_per_1k_views numeric default 1.0;
+
+alter table public.settings
+add column if not exists enable_direct_messaging boolean default true;
+
+alter table public.settings 
+add column if not exists referral_message text default 'Invite friends! If they sign up via your link, you''ll automatically follow each other.';
+
+alter table public.profiles
+add column if not exists email_public boolean default true;
+
+-- 3. Update Permissions (RLS)
+alter table public.profiles enable row level security;
+
+drop policy if exists "Public profiles are viewable by everyone" on public.profiles;
+
+create policy "Public profiles are viewable by everyone" on public.profiles for
+select
+  using (true);
+
+drop policy if exists "Users can update own profile" on public.profiles;
+
+create policy "Users can update own profile" on public.profiles
+for update
+  using (auth.uid () = id);
+
+drop policy if exists "Admins can update any profile" on public.profiles;
+
+create policy "Admins can update any profile" on public.profiles
+for update
+  using (
+    exists (
+      select
+        1
+      from
+        public.profiles
+      where
+        id = auth.uid ()
+        and role = 'ADMIN'
+    )
+  );
+
+alter table public.settings enable row level security;
+
+drop policy if exists "Public settings are viewable by everyone" on public.settings;
+
+create policy "Public settings are viewable by everyone" on public.settings for
+select
+  using (true);
+
+drop policy if exists "Admins can update settings" on public.settings;
+
+create policy "Admins can update settings" on public.settings
+for update
+  using (
+    exists (
+      select
+        1
+      from
+        public.profiles
+      where
+        id = auth.uid ()
+        and role = 'ADMIN'
+    )
+  );
+
+drop policy if exists "Admins can insert settings" on public.settings;
+
+create policy "Admins can insert settings" on public.settings for insert
+with
+  check (
+    exists (
+      select
+        1
+      from
+        public.profiles
+      where
+        id = auth.uid ()
+        and role = 'ADMIN'
+    )
+  );
+
+alter table public.posts enable row level security;
+
+drop policy if exists "Posts are viewable by everyone" on public.posts;
+
+create policy "Posts are viewable by everyone" on public.posts for
+select
+  using (true);
+
+drop policy if exists "Users can create posts" on public.posts;
+
+create policy "Users can create posts" on public.posts for insert
+with
+  check (auth.uid () = user_id);
+
+drop policy if exists "Users can update own posts" on public.posts;
+
+create policy "Users can update own posts" on public.posts
+for update
+  using (auth.uid () = user_id);
+
+drop policy if exists "Users can delete own posts" on public.posts;
+
+create policy "Users can delete own posts" on public.posts for delete using (auth.uid () = user_id);
+
+drop policy if exists "Admins can update any post" on public.posts;
+
+create policy "Admins can update any post" on public.posts
+for update
+  using (
+    exists (
+      select
+        1
+      from
+        public.profiles
+      where
+        id = auth.uid ()
+        and role = 'ADMIN'
+    )
+  );
+
+drop policy if exists "Admins can delete any post" on public.posts;
+
+create policy "Admins can delete any post" on public.posts for delete using (
+  exists (
+    select
+      1
+    from
+      public.profiles
+    where
+      id = auth.uid ()
+      and role = 'ADMIN'
+  )
 );
 
-create table if not exists public.comments (
-  id uuid default uuid_generate_v4() primary key,
-  post_id uuid references public.posts(id) on delete cascade,
-  user_id uuid references public.profiles(id),
-  content text,
-  created_at timestamp with time zone default timezone('utc'::text, now())
+alter table public.comments enable row level security;
+
+drop policy if exists "Comments viewable by everyone" on public.comments;
+
+create policy "Comments viewable by everyone" on public.comments for
+select
+  using (true);
+
+drop policy if exists "Users can create comments" on public.comments;
+
+create policy "Users can create comments" on public.comments for insert
+with
+  check (auth.uid () = user_id);
+
+drop policy if exists "Users can delete own comments" on public.comments;
+
+create policy "Users can delete own comments" on public.comments for delete using (auth.uid () = user_id);
+
+drop policy if exists "Admins can delete any comment" on public.comments;
+
+create policy "Admins can delete any comment" on public.comments for delete using (
+  exists (
+    select
+      1
+    from
+      public.profiles
+    where
+      id = auth.uid ()
+      and role = 'ADMIN'
+  )
 );
 
-create table if not exists public.notifications (
-  id uuid default uuid_generate_v4() primary key,
-  user_id uuid references public.profiles(id),
-  actor_id uuid references public.profiles(id),
-  type text,
-  message text,
-  link text,
-  is_read boolean default false,
-  created_at timestamp with time zone default timezone('utc'::text, now())
-);
+alter table public.notifications enable row level security;
 
-create table if not exists public.messages (
-  id uuid default uuid_generate_v4() primary key,
-  sender_id uuid references public.profiles(id),
-  receiver_id uuid references public.profiles(id),
-  content text,
-  is_read boolean default false,
-  created_at timestamp with time zone default timezone('utc'::text, now())
-);
+drop policy if exists "Users view own notifications" on public.notifications;
 
-create table if not exists public.follows (
-  id uuid default uuid_generate_v4() primary key,
-  follower_id uuid references public.profiles(id),
-  following_id uuid references public.profiles(id),
-  created_at timestamp with time zone default timezone('utc'::text, now()),
-  unique(follower_id, following_id)
-);
+create policy "Users view own notifications" on public.notifications for
+select
+  using (auth.uid () = user_id);
 
-create table if not exists public.transactions (
-  id uuid default uuid_generate_v4() primary key,
-  user_id uuid references public.profiles(id),
-  type text,
-  amount numeric,
-  network text,
-  status text,
-  tx_hash text,
-  post_id uuid references public.posts(id),
-  created_at timestamp with time zone default timezone('utc'::text, now())
-);
+drop policy if exists "Users update own notifications" on public.notifications;
 
--- 4. Secure Functions (RPC)
-create or replace function public.increment_views(post_id uuid)
-returns void as $$
+create policy "Users update own notifications" on public.notifications
+for update
+  using (auth.uid () = user_id);
+
+drop policy if exists "Anyone can insert notifications" on public.notifications;
+
+create policy "Anyone can insert notifications" on public.notifications for insert
+with
+  check (true);
+
+alter table public.messages enable row level security;
+
+drop policy if exists "Users view own messages" on public.messages;
+
+create policy "Users view own messages" on public.messages for
+select
+  using (
+    auth.uid () = sender_id
+    or auth.uid () = receiver_id
+  );
+
+drop policy if exists "Users send messages" on public.messages;
+
+create policy "Users send messages" on public.messages for insert
+with
+  check (auth.uid () = sender_id);
+
+drop policy if exists "Users update messages (read status)" on public.messages;
+
+create policy "Users update messages (read status)" on public.messages
+for update
+  using (auth.uid () = receiver_id);
+
+alter table public.follows enable row level security;
+
+drop policy if exists "Users can see who they follow" on public.follows;
+
+create policy "Users can see who they follow" on public.follows for
+select
+  using (auth.uid () = follower_id);
+
+drop policy if exists "Users can see their followers" on public.follows;
+
+create policy "Users can see their followers" on public.follows for
+select
+  using (auth.uid () = following_id);
+
+drop policy if exists "Users can follow" on public.follows;
+
+create policy "Users can follow" on public.follows for insert
+with
+  check (auth.uid () = follower_id);
+
+drop policy if exists "Users can unfollow" on public.follows;
+
+create policy "Users can unfollow" on public.follows for delete using (auth.uid () = follower_id);
+
+alter table public.transactions enable row level security;
+
+drop policy if exists "Users view own txs" on public.transactions;
+
+create policy "Users view own txs" on public.transactions for
+select
+  using (auth.uid () = user_id);
+
+drop policy if exists "Users create txs" on public.transactions;
+
+create policy "Users create txs" on public.transactions for insert
+with
+  check (auth.uid () = user_id);
+
+drop policy if exists "Admins can view all transactions" on public.transactions;
+
+create policy "Admins can view all transactions" on public.transactions for
+select
+  using (
+    exists (
+      select
+        1
+      from
+        public.profiles
+      where
+        id = auth.uid ()
+        and role = 'ADMIN'
+    )
+  );
+
+drop policy if exists "Admins can update transactions" on public.transactions;
+
+create policy "Admins can update transactions" on public.transactions
+for update
+  using (
+    exists (
+      select
+        1
+      from
+        public.profiles
+      where
+        id = auth.uid ()
+        and role = 'ADMIN'
+    )
+  );
+
+-- 4. Admin Auto-Setup Trigger
+create or replace function public.handle_new_user () returns trigger as $$
 begin
-  update public.posts set views = views + 1 where id = post_id;
+  insert into public.profiles (id, email, role, balance, name, avatar_url)
+  values (
+    new.id,
+    new.email,
+    case when new.email = 'admin@adminn.com' then 'ADMIN' else 'USER' end,
+    case when new.email = 'admin@adminn.com' then 10000 else 0 end,
+    split_part(new.email, '@', 1),
+    'https://api.dicebear.com/7.x/avataaars/svg?seed=' || new.email
+  );
+  return new;
 end;
 $$ language plpgsql security definer;
 
-create or replace function public.register_referral(new_user_id uuid, referrer_id uuid)
-returns void as $$
+drop trigger if exists on_auth_user_created on auth.users;
+
+create trigger on_auth_user_created
+after insert on auth.users for each row
+execute procedure public.handle_new_user ();
+
+-- 5. Insert Default Settings (Safe Insert)
+insert into
+  public.settings (id, site_name, enable_direct_messaging)
+values
+  (1, 'TextFlow', true)
+on conflict (id) do nothing;
+
+-- 6. Secure View Counter Function (Bypass RLS)
+create or replace function public.increment_views (post_id uuid) returns void as $$
 begin
-  insert into public.follows (follower_id, following_id) values (new_user_id, referrer_id) on conflict do nothing;
-  insert into public.follows (follower_id, following_id) values (referrer_id, new_user_id) on conflict do nothing;
+  update public.posts
+  set views = views + 1
+  where id = post_id;
 end;
 $$ language plpgsql security definer;
 
--- NEW: Secure Reaction Function
+-- 7. Secure Reaction Function (REQUIRED FOR LIKES TO WORK)
 create or replace function public.react_to_post(post_id uuid, reaction_type text)
 returns void as $$
 begin
@@ -140,25 +443,18 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- 5. RLS Policies (Simplified for Safety)
-alter table public.settings enable row level security;
-drop policy if exists "Public settings" on public.settings;
-create policy "Public settings" on public.settings for select using (true);
-drop policy if exists "Admin update settings" on public.settings;
-create policy "Admin update settings" on public.settings for update using (
-  exists (select 1 from public.profiles where id = auth.uid() and role = 'ADMIN')
-);
-drop policy if exists "Admin insert settings" on public.settings;
-create policy "Admin insert settings" on public.settings for insert with check (
-  exists (select 1 from public.profiles where id = auth.uid() and role = 'ADMIN')
-);
+-- 8. Referral Function
+create or replace function public.register_referral(new_user_id uuid, referrer_id uuid)
+returns void as $$
+begin
+  insert into public.follows (follower_id, following_id) values (new_user_id, referrer_id) on conflict do nothing;
+  insert into public.follows (follower_id, following_id) values (referrer_id, new_user_id) on conflict do nothing;
+end;
+$$ language plpgsql security definer;
 
--- 6. Insert Default Settings
-insert into public.settings (id, site_name, enable_direct_messaging) 
-values (1, 'TextFlow', true)
-on conflict (id) do nothing;
-
-NOTIFY pgrst, 'reload config';
+-- 9. Refresh Schema Cache
+notify pgrst,
+'reload config';
   `;
 
   return (
@@ -167,7 +463,7 @@ NOTIFY pgrst, 'reload config';
         <h2 className="text-2xl font-bold text-indigo-400 mb-2">🛡️ Database Setup & Update</h2>
         <div className="mb-4 text-slate-300 text-sm space-y-2">
             <p className="bg-yellow-500/20 text-yellow-200 p-2 rounded border border-yellow-500/50">
-               <strong>Requirement:</strong> Copy the code below and run it in the Supabase SQL Editor. This fixes Reactions, Logos, and Referrals.
+               <strong>Action Required:</strong> Copy this SQL and run it in Supabase to fix Like/Heart buttons and View counts.
             </p>
         </div>
         <div className="bg-slate-950 p-4 rounded-lg border border-slate-700 mb-4 relative group">
