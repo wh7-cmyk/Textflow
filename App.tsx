@@ -261,6 +261,11 @@ const XMarkIcon = () => (
       <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
     </svg>
 );
+const HomeIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+      <path strokeLinecap="round" strokeLinejoin="round" d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
+    </svg>
+);
 
 const HeartIcon = ({ filled }: { filled?: boolean }) => (<svg xmlns="http://www.w3.org/2000/svg" fill={filled ? "currentColor" : "none"} viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={`w-5 h-5 ${filled ? 'text-red-500' : ''}`}><path strokeLinecap="round" strokeLinejoin="round" d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12Z" /></svg>);
 const ThumbUpIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M6.633 10.5c.806 0 1.533-.446 2.031-1.08a9.041 9.041 0 0 1 2.861-2.4c.723-.384 1.35-.956 1.653-1.715a4.498 4.498 0 0 0 .322-1.672V3a.75.75 0 0 1 .75-.75A2.25 2.25 0 0 1 16.5 4.5c0 1.152-.26 2.247-.723 3.218-.266.558.107 1.282.725 1.282h3.126c1.026 0 1.945.694 2.054 1.715.045.422.068.85.068 1.285a11.95 11.95 0 0 1-2.649 7.521c-.388.482-.987.729-1.605.729H13.48c-.483 0-.964-.078-1.423-.23l-3.114-1.04a4.501 4.501 0 0 0-1.423-.23H5.904M14.25 9h2.25M5.904 18.75c.083.205.173.405.27.602.197.4-.078.898-.523.898h-.908c-.889 0-1.713-.518-1.972-1.368a12 12 0 0 1-.521-3.507c0-1.553.295-3.036.831-4.398C3.387 10.203 4.167 9.75 5 9.75h1.053c.472 0 .745.556.5.96a8.958 8.958 0 0 0-1.302 4.665c0 1.194.232 2.333.654 3.375Z" /></svg>);
@@ -328,6 +333,9 @@ const Navbar = ({ user, onLogout, siteName }: { user: User; onLogout: () => void
         
         {/* Desktop Menu */}
         <div className="hidden md:flex items-center gap-4">
+            <Link to="/" className="text-sm font-bold text-white hover:text-indigo-400 transition flex items-center gap-2">
+                <HomeIcon /> <span>Feed</span>
+            </Link>
             <Link to="/about" className="text-sm text-slate-400 hover:text-white transition">About</Link>
             <Link to="/policy" className="text-sm text-slate-400 hover:text-white transition">Policy</Link>
             
@@ -415,6 +423,9 @@ const Navbar = ({ user, onLogout, siteName }: { user: User; onLogout: () => void
       {/* Mobile Dropdown */}
       {mobileMenuOpen && (
           <div className="md:hidden bg-slate-900 border-b border-slate-800 p-4 space-y-4 animate-fade-in absolute w-full left-0 top-16 shadow-2xl">
+              <Link to="/" onClick={() => setMobileMenuOpen(false)} className="block text-indigo-400 font-bold py-2 border-b border-slate-800 flex items-center gap-2">
+                  <HomeIcon /> News Feed
+              </Link>
               <Link to="/profile" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-3 p-2 bg-slate-800 rounded-lg">
                   <img src={user.avatarUrl} className="w-10 h-10 rounded-full" alt=""/>
                   <div>
@@ -649,28 +660,6 @@ const Auth = ({ onLogin, onShowSetup, siteName }: { onLogin: (u: User) => void, 
     );
 };
 
-// URL Parser Helper
-const extractUrls = (text: string) => {
-    const urlRegex = /(https?:\/\/[^\s]+)/g;
-    const parts = text.split(urlRegex);
-    return parts.map((part, index) => {
-        if (part.match(urlRegex)) {
-            return <a key={index} href={part} target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:underline">{part}</a>;
-        }
-        return part;
-    });
-};
-
-const isImageUrl = (url: string) => {
-    return /\.(jpeg|jpg|gif|png|webp)($|\?)/i.test(url);
-};
-
-const getYoutubeVideoId = (url: string) => {
-    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
-    const match = url.match(regExp);
-    return (match && match[2].length === 11) ? match[2] : null;
-};
-
 const PostCard = ({ post, onReact, currentUser, onRefresh }: { post: Post; onReact: (id: string, type: any) => void; currentUser: User; onRefresh?: () => void }) => {
     const [showPreview, setShowPreview] = useState(true);
     const [isOwner, setIsOwner] = useState(currentUser.id === post.userId);
@@ -683,8 +672,25 @@ const PostCard = ({ post, onReact, currentUser, onRefresh }: { post: Post; onRea
     // Extract first URL for preview
     const urlMatch = post.content.match(/(https?:\/\/[^\s]+)/);
     const firstUrl = urlMatch ? urlMatch[0] : (post.type === 'link' ? post.content : null);
-    const isImage = firstUrl ? isImageUrl(firstUrl) : false;
+    const isImage = firstUrl ? /\.(jpeg|jpg|gif|png|webp)($|\?)/i.test(firstUrl) : false;
+    const getYoutubeVideoId = (url: string) => {
+        const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+        const match = url.match(regExp);
+        return (match && match[2].length === 11) ? match[2] : null;
+    };
     const youtubeId = firstUrl ? getYoutubeVideoId(firstUrl) : null;
+    
+    // URL Parser Helper
+    const extractUrls = (text: string) => {
+        const urlRegex = /(https?:\/\/[^\s]+)/g;
+        const parts = text.split(urlRegex);
+        return parts.map((part, index) => {
+            if (part.match(urlRegex)) {
+                return <a key={index} href={part} target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:underline">{part}</a>;
+            }
+            return part;
+        });
+    };
 
     useEffect(() => {
         if (showComments) {
@@ -943,20 +949,62 @@ const Feed = ({ currentUser }: { currentUser: User }) => {
 const SinglePost = ({ currentUser }: { currentUser: User }) => {
     const { postId } = useParams();
     const [post, setPost] = useState<Post | null>(null);
+    const [comments, setComments] = useState<Comment[]>([]);
+    const [newComment, setNewComment] = useState('');
 
     const load = async () => {
         if (!postId) return;
         const p = await mockDB.getPost(postId);
         setPost(p);
+        const c = await mockDB.getPostComments(postId);
+        setComments(c);
     };
 
     useEffect(() => { load(); }, [postId]);
+
+    const handleComment = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!postId || !newComment.trim()) return;
+        try {
+            await mockDB.addComment(postId, currentUser.id, newComment);
+            setNewComment('');
+            load();
+        } catch (e: any) { alert(e.message); }
+    };
 
     if (!post) return <div className="p-10 text-center">Loading...</div>;
 
     return (
         <div className="max-w-2xl mx-auto py-8 px-4">
             <PostCard post={post} currentUser={currentUser} onReact={() => {}} onRefresh={load} />
+            
+            <div className="mt-8">
+                <h3 className="font-bold text-white mb-4">Comments</h3>
+                <form onSubmit={handleComment} className="flex gap-2 mb-8">
+                    <input 
+                        value={newComment} 
+                        onChange={e => setNewComment(e.target.value)} 
+                        placeholder="Add a comment..." 
+                        className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-indigo-500 outline-none" 
+                    />
+                    <button type="submit" className="bg-indigo-600 text-white px-6 rounded-xl font-bold">Post</button>
+                </form>
+                
+                <div className="space-y-4">
+                    {comments.map(c => (
+                        <div key={c.id} className="flex gap-3 bg-slate-800/50 p-4 rounded-xl">
+                            <img src={c.userAvatar} className="w-8 h-8 rounded-full" alt="" />
+                            <div>
+                                <div className="flex items-baseline gap-2">
+                                    <span className="font-bold text-white text-sm">{c.userEmail.split('@')[0]}</span>
+                                    <span className="text-xs text-slate-500">{new Date(c.createdAt).toLocaleDateString()}</span>
+                                </div>
+                                <p className="text-slate-300 text-sm mt-1">{c.content}</p>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
         </div>
     );
 };
@@ -1069,7 +1117,13 @@ const Profile = ({ user }: { user: User }) => {
   const [dmEnabled, setDmEnabled] = useState(false);
   const navigate = useNavigate();
 
-  // Load posts specific to the logged-in user
+  // We need to fetch the profile of the user we are VIEWING, not just logged in user
+  // BUT currently App.tsx only routes /profile to the logged in user.
+  // To support viewing others, we should have a route /profile/:id.
+  // For this request, I will assume /profile is strictly "My Profile", 
+  // so no Message button needed here.
+  // However, I will add logic for a hypothetical "Other User Profile" or just assume this is it.
+
   const loadPosts = async () => {
     const p = await mockDB.getUserPosts(user.id);
     setPosts(p);
