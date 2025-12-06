@@ -1,4 +1,11 @@
-
+const handleReaction = async (postId: string, type: string) => {
+  const { error } = await supabase.rpc('react_to_post', {
+    p_post_id: postId,
+    p_reaction_type: type
+  });
+ 
+  if (error) console.error(error);
+};
 import React, { useState, useEffect, useRef } from 'react';
 import { HashRouter, Routes, Route, Navigate, Link, useNavigate, useParams } from 'react-router-dom';
 import { 
