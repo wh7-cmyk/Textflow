@@ -56,6 +56,11 @@ class DBService {
 
   // --- Auth ---
 
+  async resetPassword(email: string): Promise<void> {
+    const { error } = await supabase.auth.resetPasswordForEmail(email);
+    if (error) throw new Error(error.message);
+  }
+
   async signIn(email: string, password: string): Promise<User> {
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
