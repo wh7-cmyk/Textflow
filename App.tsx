@@ -231,17 +231,7 @@ insert into public.settings (id, site_name, enable_direct_messaging)
 values (1, 'TextFlow', true)
 on conflict (id) do nothing;
 
--- 6. Secure View Counter Function (Bypass RLS)
-create or replace function public.increment_views(post_id uuid)
-returns void as $$
-begin
-  update public.posts
-  set views = views + 1
-  where id = post_id;
-end;
-$$ language plpgsql security definer;
-
--- 7. Refresh Schema Cache
+-- 6. Refresh Schema Cache
 NOTIFY pgrst, 'reload config';
   `;
 
@@ -868,8 +858,6 @@ const PostCard = ({ post, onReact, currentUser, onRefresh, onSponsor }: { post: 
     const [showComments, setShowComments] = useState(false);
     const [comments, setComments] = useState<Comment[]>([]);
     const [newComment, setNewComment] = useState('');
-    // Local state for optimistic view count updates
-    const [localViews, setLocalViews] = useState(post.views);
 
     // Extract first URL for preview
     const urlMatch = post.content.match(/(https?:\/\/[^\s]+)/);
@@ -902,8 +890,6 @@ const PostCard = ({ post, onReact, currentUser, onRefresh, onSponsor }: { post: 
             if (!sessionStorage.getItem(key)) {
                 mockDB.incrementPostView(post.id);
                 sessionStorage.setItem(key, 'true');
-                // Optimistically update view count in UI
-                setLocalViews(v => v + 1);
             }
         }
 
@@ -1076,7 +1062,7 @@ const PostCard = ({ post, onReact, currentUser, onRefresh, onSponsor }: { post: 
                 <div className="flex gap-4 text-xs text-slate-500 font-medium">
                     <button onClick={() => setShowComments(!showComments)} className="hover:text-white flex items-center gap-1"><ChatBubbleIcon /> {showComments ? 'Hide' : 'Comments'}</button>
                     <button onClick={handleShare} className="hover:text-white flex items-center gap-1"><ShareIcon /> Share</button>
-                    <span className="flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg> {localViews}</span>
+                    <span className="flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg> {post.views}</span>
                 </div>
             </div>
 
